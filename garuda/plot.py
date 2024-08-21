@@ -7,9 +7,9 @@ from beartype import beartype
 from garuda.ops import geo_to_webm, webm_to_geo
 
 @jaxtyped(typechecker=beartype)
-def plot_gms(img: ndarray, img_center_lat: float, img_center_lon: float, zoom: int, ax:Axes) -> Axes:
+def plot_webm_to_geo(img: ndarray, img_center_lat: float, img_center_lon: float, zoom: int, ax:Axes) -> Axes:
     """
-    Plot a Google Maps Static (GMS) image with geo-coordinates.
+    Plot a satellite image with Web Mercator projection on Geo-coordinates.
     
     Parameters
     ----------
