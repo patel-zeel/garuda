@@ -4,7 +4,7 @@
 </h1>
 
 <p align="center">
-  <img src="logo/garuda_profile.jpeg" width="300">
+  <img src="logo/garuda_profile_full1.png" width="100%">
 </p>
 <p align="center">
   A research-oriented computer vision library for satellite imagery.
