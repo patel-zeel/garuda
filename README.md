@@ -1,13 +1,29 @@
-## Description
-* Add PYPI_USERNAME and PYPI_PASSWORD to `Secrets and variables > Actions > Secrets` using GitHub GUI. This is required to push your package to PyPI.
-* Run `customize.py` to take care of the rest.
-* Each time you push a new release, code is automatically published on PyPI via the workflow. `pip install -U <your_package>` should then install the latest version of your package.
+<!-- align h1 to center -->
+<h1 align="center">
+    Garuda
+</h1>
 
-## How to add badges?
-### CI status badge
-![image](https://github.com/patel-zeel/pip-template/assets/59758528/5e2bf572-08a9-4d96-86ea-946e89686870)
+<p align="center">
+  <img src="logo/garuda_profile.jpeg" width="300">
+</p>
+<p align="center">
+  A research-oriented computer vision library for satellite imagery.
+</p>
 
-### Coverage badge
-![image](https://github.com/patel-zeel/pip-template/assets/59758528/c924ffc5-7974-4a6a-a225-1c6de96dd826)
+## Installation
 
+```bash
+pip install git+https://github.com/patel-zeel/garuda
+```
 
+## Terminology
+
+| Term                             | Description                                                                                                                                               |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local co-ordinates               | (x, y) where x is the column number and y is the row number. Origin is at the top-left corner.                                                            |
+| Web Mercator (webm) co-ordinates | (x, y) pixel co-ordinates as described on [Google Maps Developer Documentation](https://developers.google.com/maps/documentation/javascript/coordinates). |
+| Geo co-ordinates                 | (latitude, longitude) as genereally used in GPS systems.                                                                                                  |
+
+## Usage
+
+See the [examples](examples) directory for more details.
