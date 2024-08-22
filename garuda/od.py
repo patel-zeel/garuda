@@ -75,6 +75,10 @@ def yolo_obb_to_geo(yolo_label: Union[Float[ndarray, "n 9"], Float[ndarray, "n 1
     
         Example 1: [0, 0.5, 0.5, 0.1, 0.1, 0.0]
         Example 2: [0, 0.5, 0.5, 0.1, 0.1, 0.0, 0.9]
+        
+    zoom: Zoom level of the map.
+        Range: [0, 20]
+        Example: 17
 
     img_center_lon: Longitude of the center of the image.
         Range: [-180, 180]
@@ -83,10 +87,6 @@ def yolo_obb_to_geo(yolo_label: Union[Float[ndarray, "n 9"], Float[ndarray, "n 1
     img_center_lat: Latitude of the center of the image.
         Range: approx [-85, 85] (valid range for Web Mercator projection)
         Example: 37.7749
-        
-    zoom: Zoom level of the map.
-        Range: [0, 20]
-        Example: 17
 
     img_width: Width of the image in pixels.
         Range: [0, inf]
