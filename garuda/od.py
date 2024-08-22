@@ -7,11 +7,11 @@ from jaxtyping import Float, jaxtyped
 from typing import Union
 
 @jaxtyped(typechecker=beartype)
-def yolo_aa_to_geo(yolo_label: Union[Float[ndarray, "n 4"], Float[ndarray, "n 5"]], zoom: int, img_center_lat: float, img_center_lon: float, img_width: int, img_height: int) -> Float[ndarray, "n 3"]:
+def yolo_aa_to_geo(yolo_label: Union[str, Float[ndarray, "n 4"], Float[ndarray, "n 5"]], zoom: int, img_center_lat: float, img_center_lon: float, img_width: int, img_height: int) -> Float[ndarray, "n 3"]:
     """
     Convert YOLO label to geographic coordinates.
     
-    yolo_label: YOLO label in the format [class, x_center, y_center, width, height] or [class, x_center, y_center, width, height, confidence].
+    yolo_label: YOLO label (or str path) in the format [class, x_center, y_center, width, height] or [class, x_center, y_center, width, height, confidence].
         class range: [0, 1, 2, ...]
         x_center range: [0, 1]
         y_center range: [0, 1]
@@ -48,6 +48,9 @@ def yolo_aa_to_geo(yolo_label: Union[Float[ndarray, "n 4"], Float[ndarray, "n 5"
         Format: [class, latitude, longitude]
         Example: [0, 37.7749, -122.4194]
     """
+    if isinstance(yolo_label, str):
+        yolo_label = np.loadtxt(yolo_label, ndmin=2)
+        return yolo_aa_to_geo(yolo_label, zoom, img_center_lat, img_center_lon, img_width, img_height)  # To trigger type/shape checking
     
     # Get bbox center in image coordinates
     x_c = yolo_label[:, 1]
@@ -62,12 +65,12 @@ def yolo_aa_to_geo(yolo_label: Union[Float[ndarray, "n 4"], Float[ndarray, "n 5"
     
     return output
 
-
-def yolo_obb_to_geo(yolo_label: Union[Float[ndarray, "n 9"], Float[ndarray, "n 10"]], zoom: int, img_center_lat: float, img_center_lon: float, img_width: int, img_height: int) -> Float[ndarray, "n 3"]:
+@jaxtyped(typechecker=beartype)
+def yolo_obb_to_geo(yolo_label: Union[str, Float[ndarray, "n 9"], Float[ndarray, "n 10"]], zoom: int, img_center_lat: float, img_center_lon: float, img_width: int, img_height: int) -> Float[ndarray, "n 3"]:
     """
     Convert YOLO label to geographic coordinates.
     
-    yolo_label: YOLO label in the format [class, x1, y1, x2, y2, x3, y3, x4, y4] or [class, x1, y1, x2, y2, x3, y3, x4, y4, confidence].
+    yolo_label: YOLO label (or str path) in the format [class, x1, y1, x2, y2, x3, y3, x4, y4] or [class, x1, y1, x2, y2, x3, y3, x4, y4, confidence].
         class range: [0, 1, 2, ...]
         x1, x2, x3, x4 range: [0, 1]
         y1, y2, y3, y4 range: [0, 1]
@@ -102,6 +105,10 @@ def yolo_obb_to_geo(yolo_label: Union[Float[ndarray, "n 9"], Float[ndarray, "n 1
         Format: [class, latitude, longitude]
         Example: [0, 37.7749, -122.4194]
     """
+    
+    if isinstance(yolo_label, str):
+        yolo_label = np.loadtxt(yolo_label, ndmin=2)
+        return yolo_obb_to_geo(yolo_label, zoom, img_center_lat, img_center_lon, img_width, img_height)  # To trigger type/shape checking
     
     # Get bbox center in image coordinates
     xyxyxyxy = yolo_label[:, 1:9]
