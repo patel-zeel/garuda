@@ -63,7 +63,7 @@ def yolo_aa_to_geo(yolo_label: Union[Float[ndarray, "n 4"], Float[ndarray, "n 5"
     return output
 
 
-def yolo_obb_to_geo(yolo_label: Union[Float[ndarray, "n 9"], Float[ndarray, "n 10"]], img_center_lat: float, img_center_lon: float, zoom: int, img_width: int, img_height: int) -> Float[ndarray, "n 3"]:
+def yolo_obb_to_geo(yolo_label: Union[Float[ndarray, "n 9"], Float[ndarray, "n 10"]], zoom: int, img_center_lat: float, img_center_lon: float, img_width: int, img_height: int) -> Float[ndarray, "n 3"]:
     """
     Convert YOLO label to geographic coordinates.
     
@@ -110,7 +110,7 @@ def yolo_obb_to_geo(yolo_label: Union[Float[ndarray, "n 9"], Float[ndarray, "n 1
     
     # Get bbox center in Web Mercator projection
     bbox_geo = local_to_web_mercator(x_c, y_c, zoom, img_center_lat, img_center_lon, img_width, img_height)
-    
+
     # Append class ID to bbox_geo
     class_ids = yolo_label[:, 0:1]
     output = np.concatenate((class_ids, bbox_geo), axis=1)
