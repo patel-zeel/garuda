@@ -146,8 +146,8 @@ def test_geo_to_webm_pixel_beyond_upper_limit(delta_lat, delta_lon, zoom):
     
     
 def test_obb_to_aa():
-    obb_label_path = "data/22.32,87.93_obb.txt"
-    aa_label_path = "data/22.32,87.93_aa.txt"
+    obb_label_path = "data/labels/obb/22.32,87.93.txt"
+    aa_label_path = "data/labels/aa/22.32,87.93.txt"
     aa_label = np.loadtxt(aa_label_path, ndmin=2)
     
     # load with path
