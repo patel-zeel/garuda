@@ -1,6 +1,8 @@
 import pytest
 import numpy as np
-from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, obb_to_aa
+from ultralytics.utils.ops import xywhr2xyxyxyxy
+
+from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, obb_to_aa, label_studio_csv_to_obb
 
 # test zoom levels
 test_zoom_levels = [0, 8, 17, 20]
@@ -156,3 +158,24 @@ def test_obb_to_aa():
     obb_label = np.loadtxt(obb_label_path, ndmin=2)
     obb_to_aa_label = obb_to_aa(obb_label)
     assert np.allclose(obb_to_aa_label, aa_label)
+    
+def test_label_studio_csv_to_obb():
+    x1 = 20
+    y1 = 10
+    width = 30
+    height = 40
+    rotation = 45
+    label = "Zigzag"
+    label_map = {"Zigzag": 0}
+    
+    rotation_rad = np.radians(rotation)
+    sin_rot = np.sin(rotation_rad)
+    cos_rot = np.cos(rotation_rad)
+    
+    x_c = x1 + width / 2 * cos_rot - height / 2 * sin_rot
+    y_c = y1 + width / 2 * sin_rot + height / 2 * cos_rot
+    
+    xywhr = np.array([x_c, y_c, width, height, rotation_rad])
+    ultralytics_xyxyxyxy = xywhr2xyxyxyxy(xywhr).ravel() / 100
+    our_label = label_studio_csv_to_obb(x1, y1, width, height, rotation, label, label_map)
+    assert np.allclose(our_label[1:], ultralytics_xyxyxyxy)

@@ -217,3 +217,46 @@ def obb_to_aa(yolo_label: Union[str, Float[ndarray, "n 9"], Float[ndarray, "n 10
     yolo_label = np.concatenate([class_id, xywh, confidence_scores], axis=1)
     
     return yolo_label
+
+
+def label_studio_csv_to_obb(x1, y1, width, height, rotation, label, label_map) -> Float[ndarray, "9"]:
+    """
+    Convert from Label studio CSV (x1, y1, w, h, r) to YOLO OBB (x1, y1, x2, y2, x3, y3, x4, y4) format
+    
+    Parameters
+    ----------
+    
+    x1: x-cordinate of one corner of the box, range(0, 100)
+    y1: y-cordinate of one corner of the box, range(0, 100)
+    w: width of the box, range(0, 100)
+    h: height of the box, range(0, 100)
+    r: rotation angle of the box in degrees
+    label: label of the box
+    label_map: dictionary mapping label to class_id
+    
+    Returns
+    ----------
+    yolo_label: YOLO OBB label in the format [class_id, x1, y1, x2, y2, x3, y3, x4, y4]
+    """
+        
+    rotation_rad = np.radians(rotation)
+    
+    cos_rot = np.cos(rotation_rad)
+    sin_rot = np.sin(rotation_rad)
+    
+    x_1 = x1 + width * cos_rot - height * sin_rot
+    y_1 = y1 + width * sin_rot + height * cos_rot
+    x_2 = x1 + width * cos_rot
+    y_2 = y1 + width * sin_rot
+    x_3 = x1
+    y_3 = y1
+    x_4 = x1 - height * sin_rot
+    y_4 = y1 + height * cos_rot
+    xyxyxyxy = np.array([x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4])
+    
+    # Normalize to range(0, 1)
+    xyxyxyxy = xyxyxyxy / 100
+    
+    label_id = np.array([label_map[label]])
+    yolo_label = np.concatenate([label_id, xyxyxyxy])
+    return yolo_label

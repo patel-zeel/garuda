@@ -1,10 +1,12 @@
 import numpy as np
+import pandas as pd
 from numpy import ndarray
 
-from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo
+from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, label_studio_csv_to_obb
 from beartype import beartype
 from jaxtyping import Float, jaxtyped
 from typing import Union
+import warnings
 
 @jaxtyped(typechecker=beartype)
 def yolo_aa_to_geo(yolo_label: Union[str, Float[ndarray, "n 4"], Float[ndarray, "n 5"]], zoom: int, img_center_lat: float, img_center_lon: float, img_width: int, img_height: int) -> Float[ndarray, "n 3"]:
@@ -123,3 +125,45 @@ def yolo_obb_to_geo(yolo_label: Union[str, Float[ndarray, "n 9"], Float[ndarray,
     output = np.concatenate((class_ids, bbox_geo), axis=1)
     
     return output
+
+
+def add_obb_to_label_studio_df(df: pd.DataFrame, label_map: dict) -> pd.DataFrame:
+    """
+    Add YOLO oriented bounding box to Label Studio DataFrame.
+    
+    Parameters
+    ----------
+    df: Label Studio DataFrame.
+        This should be extracted from the Label Studio "CSV" option.
+        
+    label_map: Dictionary mapping class names to class IDs.
+        Example: {"car": 0, "truck": 1, "bus": 2}
+    
+    Returns
+    -------
+    df: Label Studio DataFrame with YOLO oriented bounding box added as a new column named "obb".
+    """
+    
+    def process_row(row):
+        try:
+            str_label = row["label"]
+            labels = eval(str_label)
+            obb_list = []
+            for label in labels:
+                x1 = label['x']
+                y1 = label['y']
+                width = label['width']
+                height = label['height']
+                rotation = label['rotation']
+                class_name = label['rectanglelabels'][0]
+                
+                obb = label_studio_csv_to_obb(x1, y1, width, height, rotation, class_name, label_map)
+                obb_list.append(obb)
+            obb = np.stack(obb_list)
+            return obb
+        except Exception as e:
+            warnings.warn(f"Error processing row: {row}\n{e}")
+            return None
+    
+    df["obb"] = df.apply(process_row, axis=1)
+    return df
