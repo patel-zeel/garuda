@@ -10,6 +10,8 @@
   A research-oriented computer vision library for satellite imagery.
 </p>
 
+[![Coverage Status](https://coveralls.io/repos/github/patel-zeel/garuda/badge.svg?branch=main)](https://coveralls.io/github/patel-zeel/garuda?branch=main)
+
 ## Installation
 
 Stable version:
