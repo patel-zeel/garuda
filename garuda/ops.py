@@ -1,7 +1,7 @@
 import numpy as np
 from numpy import ndarray
 import pyproj
-from typing import Tuple, Union
+from beartype.typing import Tuple, Union
 import warnings
 from beartype import beartype
 from jaxtyping import Float, jaxtyped

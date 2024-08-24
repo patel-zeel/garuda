@@ -5,7 +5,7 @@ from numpy import ndarray
 from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, label_studio_csv_to_obb
 from beartype import beartype
 from jaxtyping import Float, jaxtyped
-from typing import Union
+from beartype.typing import Union
 import warnings
 
 @jaxtyped(typechecker=beartype)
