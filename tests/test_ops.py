@@ -100,8 +100,8 @@ def test_geo_to_webm_pixel_random():
 @pytest.mark.filterwarnings("error") # if there is a warning, raise an error
 def test_geo_to_webm_pixel_lower_limit():
     zoom = 17
-    lat = -85
-    lon = -180
+    lat = -85.0
+    lon = -180.0
     x, y = geo_to_webm_pixel(lat, lon, zoom)
     x_, y_ = project(lat, lon, zoom)
     assert np.isclose(x, x_), f"x={x}, x_={x_}"
@@ -111,8 +111,8 @@ def test_geo_to_webm_pixel_lower_limit():
 @pytest.mark.filterwarnings("error") # if there is a warning, raise an error
 def test_geo_to_webm_pixel_upper_limit():
     zoom = 17
-    lat = 85
-    lon = 180
+    lat = 85.0
+    lon = 180.0
     x, y = geo_to_webm_pixel(lat, lon, zoom)
     x_, y_ = project(lat, lon, zoom)
     assert np.isclose(x, x_), f"x={x}, x_={x_}"

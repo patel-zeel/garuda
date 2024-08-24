@@ -12,6 +12,12 @@
 
 ## Installation
 
+Stable version:
+```bash
+pip install garuda
+```
+
+Latest version:
 ```bash
 pip install git+https://github.com/patel-zeel/garuda
 ```
