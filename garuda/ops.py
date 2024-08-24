@@ -1,9 +1,13 @@
 import numpy as np
+from numpy import ndarray
 import pyproj
-from typing import Tuple
+from typing import Tuple, Union
 import warnings
+from beartype import beartype
+from jaxtyping import Float, jaxtyped
 
-def local_to_web_mercator(x: float, y: float, zoom: int, img_center_lat: float, img_center_lon: float, img_width: int, img_height: int) -> Tuple[float, float]:
+# @jaxtyped(typechecker=beartype)
+def local_to_geo(x: float, y: float, zoom: int, img_center_lat: float, img_center_lon: float, img_width: int, img_height: int) -> Union[Float[ndarray, "2"], Float[ndarray, "n 2"]]:
     """
     Convert local coordinates to Web Mercator projection at a given zoom level for given image center and image dimensions.
     
@@ -45,7 +49,7 @@ def local_to_web_mercator(x: float, y: float, zoom: int, img_center_lat: float, 
     """
     
     # Get image center in Web Mercator projection
-    image_center_webm_x, image_center_webm_y = geo_to_webm(img_center_lat, img_center_lon, zoom)
+    image_center_webm_x, image_center_webm_y = geo_to_webm_pixel(img_center_lat, img_center_lon, zoom)
     
     # get delta_x_c: (0, 1) -> (-img_width/2, img_width/2)
     # get delta_y_c: (0, 1) -> (-img_height/2, img_height/2)
@@ -57,13 +61,14 @@ def local_to_web_mercator(x: float, y: float, zoom: int, img_center_lat: float, 
     bbox_center_webm_y = image_center_webm_y + delta_y
     
     # Convert bbox center to geographic coordinates
-    bbox_geo = webm_to_geo(bbox_center_webm_x, bbox_center_webm_y, zoom)
+    bbox_geo = webm_pixel_to_geo(bbox_center_webm_x, bbox_center_webm_y, zoom)
     bbox_geo = np.array(bbox_geo).T
     
     return bbox_geo
-        
 
-def geo_to_webm(lat:float, lon:float, zoom:int) -> Tuple[float, float]:
+
+@jaxtyped(typechecker=beartype)
+def geo_to_webm_pixel(lat:Union[float, Float[ndarray, "n"]], lon:Union[float, Float[ndarray, "n"]], zoom:int) -> Tuple[Union[float, Float[ndarray, "n"]], Union[float, Float[ndarray, "n"]]]:
     """
     Convert latitude and longitude to Web Mercator projection at a given zoom level.
     
@@ -116,7 +121,7 @@ def geo_to_webm(lat:float, lon:float, zoom:int) -> Tuple[float, float]:
     
     return x, y
 
-def webm_to_geo(x:float, y:float, zoom:int) -> Tuple[float, float]:
+def webm_pixel_to_geo(x:float, y:float, zoom:int) -> Tuple[Union[float, Float[ndarray, "n"]], Union[float, Float[ndarray, "n"]]]:
     """
     Convert Web Mercator projection to latitude and longitude at a given zoom level.
     
@@ -167,3 +172,48 @@ def webm_to_geo(x:float, y:float, zoom:int) -> Tuple[float, float]:
     lon = np.degrees(lon_rad)
     
     return lat, lon
+
+
+def obb_to_aa(yolo_label: Union[str, Float[ndarray, "n 9"], Float[ndarray, "n 10"]]) -> Union[str, Float[ndarray, "n 5"], Float[ndarray, "n 6"]]:
+    """
+    Convert YOLO OBB labels with format [class_id, x1, y1, x2, y2, x3, y3, x4, y4] to YOLO axis-aligned format [class_id, x_c, y_c, width, height].
+    
+    Parameters
+    ----------
+    yolo_label: YOLO label (or path) in OBB format.
+    
+    Returns
+    ----------
+    yolo_label: YOLO label in axis-aligned format.
+    """
+    
+    if isinstance(yolo_label, str):
+        yolo_label = np.loadtxt(yolo_label, ndmin=2)
+        return obb_to_aa(yolo_label)  # to trigger type/shape checking
+    
+    # Split the label into various components
+    class_id = yolo_label[:, 0:1]
+    confidence_scores = yolo_label[:, 9:] # will be (n, 0) array if confidence scores are not present
+    xyxyxyxy = yolo_label[:, 1:9]
+    
+    # Get the x and y coordinates
+    x = xyxyxyxy[:, ::2]
+    y = xyxyxyxy[:, 1::2]
+    
+    # Find the bounds
+    x_max = np.max(x, axis=1)
+    x_min = np.min(x, axis=1)
+    y_max = np.max(y, axis=1)
+    y_min = np.min(y, axis=1)
+    
+    # Convert to axis-aligned format
+    x_c = (x_max + x_min) / 2
+    y_c = (y_max + y_min) / 2
+    width = x_max - x_min
+    height = y_max - y_min
+    xywh = np.stack([x_c, y_c, width, height], axis=1)
+    
+    # Concatenate the class_id and confidence scores
+    yolo_label = np.concatenate([class_id, xywh, confidence_scores], axis=1)
+    
+    return yolo_label

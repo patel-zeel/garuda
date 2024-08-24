@@ -1,7 +1,7 @@
 import numpy as np
 from numpy import ndarray
 
-from garuda.ops import webm_to_geo, geo_to_webm, local_to_web_mercator
+from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo
 from beartype import beartype
 from jaxtyping import Float, jaxtyped
 from typing import Union
@@ -57,7 +57,7 @@ def yolo_aa_to_geo(yolo_label: Union[str, Float[ndarray, "n 4"], Float[ndarray, 
     y_c = yolo_label[:, 2]
     
     # Get bbox center in Web Mercator projection
-    bbox_geo = local_to_web_mercator(x_c, y_c, zoom, img_center_lat, img_center_lon, img_width, img_height)
+    bbox_geo = local_to_geo(x_c, y_c, zoom, img_center_lat, img_center_lon, img_width, img_height)
     
     # Append class ID to bbox_geo
     class_ids = yolo_label[:, 0:1]
@@ -116,7 +116,7 @@ def yolo_obb_to_geo(yolo_label: Union[str, Float[ndarray, "n 9"], Float[ndarray,
     y_c = xyxyxyxy[:, 1::2].mean(axis=1)
     
     # Get bbox center in Web Mercator projection
-    bbox_geo = local_to_web_mercator(x_c, y_c, zoom, img_center_lat, img_center_lon, img_width, img_height)
+    bbox_geo = local_to_geo(x_c, y_c, zoom, img_center_lat, img_center_lon, img_width, img_height)
 
     # Append class ID to bbox_geo
     class_ids = yolo_label[:, 0:1]

@@ -4,10 +4,10 @@ from matplotlib.axes import Axes
 from jaxtyping import Float, jaxtyped
 from beartype import beartype
 
-from garuda.ops import geo_to_webm, webm_to_geo
+from garuda.ops import geo_to_webm_pixel, webm_pixel_to_geo
 
 @jaxtyped(typechecker=beartype)
-def plot_webm_to_geo(img: ndarray, img_center_lat: float, img_center_lon: float, zoom: int, ax:Axes) -> Axes:
+def plot_webm_pixel_to_geo(img: ndarray, img_center_lat: float, img_center_lon: float, zoom: int, ax:Axes) -> Axes:
     """
     Plot a satellite image with Web Mercator projection on Geo-coordinates.
     
@@ -35,14 +35,14 @@ def plot_webm_to_geo(img: ndarray, img_center_lat: float, img_center_lon: float,
     ax : Matplotlib axis with the plotted image.
     """
     
-    img_center_webm_x, img_center_webm_y = geo_to_webm(img_center_lat, img_center_lon, zoom)
+    img_center_webm_x, img_center_webm_y = geo_to_webm_pixel(img_center_lat, img_center_lon, zoom)
     
     x_range = np.arange(int(img_center_webm_x) - img.shape[0]//2, int(img_center_webm_x) + img.shape[0]//2)
     y_range = np.arange(int(img_center_webm_y) - img.shape[1]//2, int(img_center_webm_y) + img.shape[1]//2)
 
     X, Y = np.meshgrid(x_range, y_range)
 
-    Lat, Lon = webm_to_geo(X, Y, zoom)
+    Lat, Lon = webm_pixel_to_geo(X, Y, zoom)
 
     ax.pcolormesh(Lon, Lat, img)
     ax.set_aspect('equal')
