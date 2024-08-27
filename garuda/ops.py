@@ -1,10 +1,18 @@
 import numpy as np
+import cv2
 from numpy import ndarray
 import pyproj
 from beartype.typing import Tuple, Union
 import warnings
 from beartype import beartype
-from jaxtyping import Float, jaxtyped
+from jaxtyping import Float, jaxtyped, Int
+
+import planetary_computer as pc
+from pystac_client import Client
+from pystac.extensions.eo import EOExtension as eo
+from shapely.geometry import box
+import xarray as xr
+import rioxarray
 
 # @jaxtyped(typechecker=beartype)
 def local_to_geo(x: float, y: float, zoom: int, img_center_lat: float, img_center_lon: float, img_width: int, img_height: int) -> Union[Float[ndarray, "2"], Float[ndarray, "n 2"]]:
@@ -260,3 +268,210 @@ def label_studio_csv_to_obb(x1, y1, width, height, rotation, label, label_map) -
     label_id = np.array([label_map[label]])
     yolo_label = np.concatenate([label_id, xyxyxyxy])
     return yolo_label
+
+@jaxtyped(typechecker=beartype)
+def get_sentinel2_visual(lat_c: float, lon_c: float, img_height: int, img_width: int, time_of_interest: str, max_cloud_cover: float, max_items: int = 10) -> xr.DataArray:
+    """
+    Get Sentinel-2 image as a PNG file from Microsoft Planetary Computer API.
+    
+    Image is centered at the given latitude and longitude with the given width and height.
+    
+    TODO: Figure out how to allow more bands. Different resolution bands can not be merged directly.
+    
+    Parameters
+    ----------
+    lat_c: Latitude of the center of the image.
+        Range: [-90, 90]
+        Example: 37.7749
+    
+    lon_c: Longitude of the center of the image.
+        Range: [-180, 180]
+        Example: -122.4194
+    
+    img_height: Height of the image in pixels.
+        Range: [0, inf]
+        Example: 480
+    
+    img_width: Width of the image in pixels.
+        Range: [0, inf]
+        Example: 640
+        
+    time_of_interest: Time of interest in the format "start_date/end_date".
+        Example: "2021-01-01/2021-01-31"
+        
+    max_cloud_cover: Maximum cloud cover percentage.
+        Range: [0, 100]
+        Example: 10
+        
+    max_items: Maximum number of items to return from the API. Least cloud cover item will be used to crop and return the image.
+        Range: [1, inf]
+        Example: 10
+        
+    Returns
+    -------
+    tif: GeoTIFF file of the Sentinel-2 image
+        Metadata: 
+            - CRS: EPSG:4326
+            - Timestamp: Timestamp of the image
+            - href: URL of the image
+    """
+    
+    polygon = box(lon_c - 0.01, lat_c - 0.01, lon_c + 0.01, lat_c + 0.01)
+    
+    catalog = Client.open("https://planetarycomputer.microsoft.com/api/stac/v1", modifier=pc.sign_inplace)
+    
+    search = catalog.search(
+        collections=["sentinel-2-l2a"],
+        intersects=polygon,
+        datetime=time_of_interest,
+        query={"eo:cloud_cover": {"lt": max_cloud_cover}},
+        max_items=max_items,
+    )
+    
+    items = search.item_collection()
+    sorted_items = sorted(items, key=lambda x: eo.ext(x).cloud_cover)
+    
+    def get_least_cloudy_raster(sorted_items):
+        if len(sorted_items) == 0:
+            raise ValueError("Search returned no valid items. Try with different parameters (e.g. expand `time_of_interest`, increase `max_cloud_cover`, increase `max_items`).")
+        least_cloud_cover_item = sorted_items[0]
+        href = least_cloud_cover_item.assets["visual"].href
+        visual_raster = rioxarray.open_rasterio(pc.sign(href))
+        
+        inverse_transform = pyproj.Transformer.from_crs("EPSG:4326", visual_raster.rio.crs)
+        x, y = inverse_transform.transform(lat_c, lon_c)
+
+        x_idx = np.abs(visual_raster.x - x).argmin().item()
+        y_idx = np.abs(visual_raster.y - y).argmin().item()
+        
+        x_exact = int(visual_raster.x[x_idx].item())
+        y_exact = int(visual_raster.y[y_idx].item())
+
+        cropped_raster = visual_raster.isel(x=slice(x_idx-img_width//2, x_idx+img_width//2), y=slice(y_idx-img_height//2, y_idx+img_height//2))
+        
+        try:
+            assert cropped_raster.shape == (3, img_height, img_width)
+        except AssertionError as e:
+            sorted_items.pop(0)
+            return get_least_cloudy_raster(sorted_items)
+        
+        # add timestamp
+        cropped_raster.attrs["timestamp"] = least_cloud_cover_item.datetime
+        # add center coordinates
+        cropped_raster.attrs["x_c"] = x_exact
+        cropped_raster.attrs["y_c"] = y_exact
+        # add all hrefs
+        for key, val in least_cloud_cover_item.assets.items():
+            cropped_raster.attrs[key] = val.href
+        
+        return cropped_raster
+    
+    return get_least_cloudy_raster(sorted_items)
+
+@jaxtyped(typechecker=beartype)
+def xyxyxyxy2xywhr(xyxyxyxy: Float[ndarray, "n 8"]) -> Float[ndarray, "n 5"]:
+    """
+    Convert Oriented Bounding Boxes (OBB) from [x1, y1, x2, y2, x3, y3, x4, y4] format to [x_c, y_c, w, h, r] format. `r` will be returned in radians.
+    Modified from `xyxyxyxy2xywhr` function in Ultralytics library.
+
+    Args:
+        xyxyxyxy: Oriented Bounding Boxes in [x1, y1, x2, y2, x3, y3, x4, y4] format.
+
+    Returns:
+        xywhr: Oriented Bounding Boxes in [x_c, y_c, w, h, r] format.
+    """
+    
+    points = xyxyxyxy.reshape(len(xyxyxyxy), -1, 2)
+    rboxes = []
+    for pts in points:
+        # NOTE: Use cv2.minAreaRect to get accurate xywhr,
+        # especially some objects are cut off by augmentations in dataloader.
+        (cx, cy), (w, h), angle = cv2.minAreaRect(pts)
+        rboxes.append([cx, cy, w, h, angle / 180 * np.pi])
+    return np.asarray(rboxes)
+
+@jaxtyped(typechecker=beartype)
+def xywhr2xyxyxyxy(xywhr: Float[ndarray, "n 5"]) -> Float[ndarray, "n 8"]:
+    """
+    Convert Oriented Bounding Boxes (OBB) from [x_c, y_c, w, h, r] format to [x1, y1, x2, y2, x3, y3, x4, y4] format. `r` should be in radians.
+
+    Args:
+        xywhr: Oriented Bounding Boxes in [x_c, y_c, w, h, r] format.
+
+    Returns:
+        xyxyxyxy: Oriented Bounding Boxes in [x1, y1, x2, y2, x3, y3, x4, y4] format.
+    """
+
+    ctr = xywhr[:, :2]
+    w, h, angle = (xywhr[:, i : i + 1] for i in range(2, 5))
+    cos_value, sin_value = np.cos(angle), np.sin(angle)
+    vec1 = [w / 2 * cos_value, w / 2 * sin_value]
+    vec2 = [-h / 2 * sin_value, h / 2 * cos_value]
+    vec1 = np.concatenate(vec1, -1)
+    vec2 = np.concatenate(vec2, -1)
+    pt1 = ctr + vec1 + vec2
+    pt2 = ctr + vec1 - vec2
+    pt3 = ctr - vec1 - vec2
+    pt4 = ctr - vec1 + vec2
+    return np.concatenate([pt1, pt2, pt3, pt4], axis=1)
+
+@jaxtyped(typechecker=beartype)
+def _get_covariance_matrix(boxes: Float[ndarray, "n 5"]):
+    """
+    Generating covariance matrix from obbs.
+
+    Args:
+        boxes: A tensor of shape (N, 5) representing rotated bounding boxes, with xywhr format.
+
+    Returns:
+        (torch.Tensor): Covariance metrixs corresponding to original rotated bounding boxes.
+    """
+    # Gaussian bounding boxes, ignore the center points (the first two columns) because they are not needed here.
+    
+    gbbs = np.concatenate((boxes[:, 2:4] ** 2 / 12, boxes[:, 4:]), axis=-1)
+    a, b, c = np.split(gbbs, [1, 2], axis=-1)
+    cos = np.cos(c)
+    sin = np.sin(c)
+    cos2 = cos ** 2
+    sin2 = sin ** 2
+    return a * cos2 + b * sin2, a * sin2 + b * cos2, (a - b) * cos * sin
+    
+@jaxtyped(typechecker=beartype)
+def obb_iou(true_obb: Float[ndarray, "n 8"], pred_obb: Float[ndarray, "m 8"], eps=1e-7) -> Float[ndarray, "n m"]:
+    """
+    Probalistic IOU for Oriented Bounding Boxes (OBB).
+    Inspired from `probiou` function in Ultralytics library.
+    
+    Parameters
+    ----------
+    true_obb: True OBB in [x1, y1, x2, y2, x3, y3, x4, y4] format.
+    pred_obb: Predicted OBB in [x1, y1, x2, y2, x3, y3, x4, y4] format.
+    eps: Small value to avoid division by zero.
+        
+    Returns
+    -------
+    iou: Intersection over Union (IOU) matrix of the two OBBs in [0, 1] range.
+    """
+    
+    xywhr_1 = xyxyxyxy2xywhr(true_obb)
+    xywhr_2 = xyxyxyxy2xywhr(pred_obb)
+    x1, y1 = xywhr_1[:, 0:1], xywhr_1[:, 1:2]
+    x2, y2 = xywhr_2[:, 0:1], xywhr_2[:, 1:2]
+    a1, b1, c1 = _get_covariance_matrix(xywhr_1)
+    a2, b2, c2 = _get_covariance_matrix(xywhr_2)
+    
+    t1 = (
+        ((a1 + a2.T) * (y1 - y2.T)**2 + (b1 + b2.T) * (x1 - x2.T)**2) / ((a1 + a2.T) * (b1 + b2.T) - (c1 + c2.T)**2 + eps)
+    ) * 0.25
+    t2 = (((c1 + c2.T) * (x2.T - x1) * (y1 - y2.T)) / ((a1 + a2.T) * (b1 + b2.T) - (c1 + c2.T)**2 + eps)) * 0.5
+    t3 = np.log(
+        ((a1 + a2.T) * (b1 + b2.T) - (c1 + c2.T)**2)
+        / (4 * (np.clip(a1 * b1 - c1**2, 0, np.inf) * np.clip(a2.T * b2.T - c2.T**2, 0, np.inf))**0.5 + eps)
+        + eps
+    ) * 0.5
+    
+    bd = np.clip(t1 + t2 + t3, eps, 100.0)
+    hd = (1.0 - np.exp(-bd) + eps) ** 0.5
+    iou = 1 - hd
+    
+    return iou

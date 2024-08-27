@@ -2,10 +2,14 @@ import numpy as np
 import pandas as pd
 from numpy import ndarray
 
-from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, label_studio_csv_to_obb
+from dataclasses import dataclass
+
+from supervision.metrics.detection import ConfusionMatrix as SVConfusionMatrix
+
+from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, label_studio_csv_to_obb, obb_iou
 from beartype import beartype
-from jaxtyping import Float, jaxtyped
-from beartype.typing import Union
+from jaxtyping import Float, Int, jaxtyped
+from beartype.typing import Union, List
 import warnings
 
 @jaxtyped(typechecker=beartype)
@@ -167,3 +171,128 @@ def add_obb_to_label_studio_df(df: pd.DataFrame, label_map: dict) -> pd.DataFram
     
     df["obb"] = df.apply(process_row, axis=1)
     return df
+
+@dataclass
+class ConfusionMatrix(SVConfusionMatrix):
+    """
+    Confusion Matrix for Object Detection inspired from `ConfusionMatrix` class in Supervision library.
+    
+    """
+    
+    @classmethod
+    @jaxtyped(typechecker=beartype)
+    def from_obb_tensors(
+        cls,
+        predictions: List[Float[ndarray, "... 10"]],
+        targets: List[Float[ndarray, "... 9"]],
+        classes: List[str],
+        conf_threshold: float,
+        iou_threshold: float,
+    ) -> "ConfusionMatrix":
+        """
+        Calculate Confusion Matrix based on Oriented Bounding Box (OBB) predictions and targets.
+        
+        Parameters
+        ----------
+        predictions: Each element of the list describes a single image and has bounding boxes in `[class_id, x1, y1, x2, y2, x3, y3, x4, y4, confidence]` format.
+        
+        targets: Each element of the list describes a single image and has bounding boxes in `[class_id, x1, y1, x2, y2, x3, y3, x4, y4]` format.
+        
+        classes (List[str]): Model class names.
+        
+        conf_threshold (float): Detection confidence threshold between `0` and `1`.
+            Detections with lower confidence will be excluded.
+        
+        iou_threshold (float): Detection iou  threshold between `0` and `1`.
+            Detections with lower iou will be classified as `FP`.
+        """
+        
+        num_classes = len(classes)
+        matrix = np.zeros((num_classes + 1, num_classes + 1))
+        for true_batch, detection_batch in zip(targets, predictions):
+            matrix += cls.evaluate_detection_obb_batch(
+                predictions=detection_batch,
+                targets=true_batch,
+                num_classes=num_classes,
+                conf_threshold=conf_threshold,
+                iou_threshold=iou_threshold,
+            )
+        return cls(
+            matrix=matrix,
+            classes=classes,
+            conf_threshold=conf_threshold,
+            iou_threshold=iou_threshold,
+        )
+        
+    @staticmethod
+    @jaxtyped(typechecker=beartype)
+    def evaluate_detection_obb_batch(
+        predictions: Float[ndarray, "n 10"],
+        targets: Float[ndarray, "m 9"],
+        num_classes: int,
+        conf_threshold: float,
+        iou_threshold: float,
+    ) -> Float[ndarray, "{num_classes}+1 {num_classes}+1"]:
+        """
+        Calculate confusion matrix for a batch of obb detections for a single image.
+
+        Parameters:
+        -----------
+            predictions: Batch prediction. Describes a single image and has format `[class_id, x1, y1, x2, y2, x3, y3, x4, y4, confidence]`.
+            
+            targets: Batch target. Describes a single image and has format `[class_id, x1, y1, x2, y2, x3, y3, x4, y4]`.
+            
+            num_classes (int): Number of classes.
+            
+            conf_threshold (float): Detection confidence threshold between `0` and `1`.
+                Detections with lower confidence will be excluded.
+                
+            iou_threshold (float): Detection iou  threshold between `0` and `1`.
+                Detections with lower iou will be classified as `FP`.
+
+        Returns:
+            np.ndarray: Confusion matrix based on a single image.
+        """
+        result_matrix = np.zeros((num_classes + 1, num_classes + 1))
+
+        conf_idx = 9
+        confidence = predictions[:, conf_idx]
+        detection_batch_filtered = predictions[confidence > conf_threshold]
+
+        class_id_idx = 0
+        true_classes = np.array(targets[:, class_id_idx], dtype=np.int16)
+        detection_classes = np.array(
+            detection_batch_filtered[:, class_id_idx], dtype=np.int16
+        )
+        true_boxes = targets[:, 1:9]
+        detection_boxes = detection_batch_filtered[:, 1:9]
+
+        iou_batch = obb_iou(true_obb=true_boxes, pred_obb=detection_boxes)
+        matched_idx = np.asarray(iou_batch > iou_threshold).nonzero()
+
+        if matched_idx[0].shape[0]:
+            matches = np.stack(
+                (matched_idx[0], matched_idx[1], iou_batch[matched_idx]), axis=1
+            )
+            matches = ConfusionMatrix._drop_extra_matches(matches=matches)
+        else:
+            matches = np.zeros((0, 3))
+
+        matched_true_idx, matched_detection_idx, _ = matches.transpose().astype(
+            np.int16
+        )
+
+        for i, true_class_value in enumerate(true_classes):
+            j = matched_true_idx == i
+            if matches.shape[0] > 0 and sum(j) == 1:
+                result_matrix[
+                    true_class_value, detection_classes[matched_detection_idx[j]]
+                ] += 1  # TP
+            else:
+                result_matrix[true_class_value, num_classes] += 1  # FN
+
+        for i, detection_class_value in enumerate(detection_classes):
+            if not any(matched_detection_idx == i):
+                result_matrix[num_classes, detection_class_value] += 1  # FP
+
+        return result_matrix

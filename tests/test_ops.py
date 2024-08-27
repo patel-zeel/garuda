@@ -1,8 +1,10 @@
 import pytest
+import torch
 import numpy as np
-from ultralytics.utils.ops import xywhr2xyxyxyxy
+from ultralytics.utils import ops
+from ultralytics.utils.metrics import probiou
 
-from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, obb_to_aa, label_studio_csv_to_obb
+from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, obb_to_aa, label_studio_csv_to_obb, obb_iou, xyxyxyxy2xywhr, xywhr2xyxyxyxy
 
 # test zoom levels
 test_zoom_levels = [0, 8, 17, 20]
@@ -176,6 +178,36 @@ def test_label_studio_csv_to_obb():
     y_c = y1 + width / 2 * sin_rot + height / 2 * cos_rot
     
     xywhr = np.array([x_c, y_c, width, height, rotation_rad])
-    ultralytics_xyxyxyxy = xywhr2xyxyxyxy(xywhr).ravel() / 100
+    ultralytics_xyxyxyxy = ops.xywhr2xyxyxyxy(xywhr).ravel() / 100
     our_label = label_studio_csv_to_obb(x1, y1, width, height, rotation, label, label_map)
     assert np.allclose(our_label[1:], ultralytics_xyxyxyxy)
+
+def test_xyxyxyxy2xywhr():
+    xyxyxyxy = torch.rand(10, 8)
+    ultralytics_xywhr = ops.xyxyxyxy2xywhr(xyxyxyxy)
+    garuda_xywhr = xyxyxyxy2xywhr(xyxyxyxy.numpy())
+    assert np.allclose(ultralytics_xywhr.numpy(), garuda_xywhr, atol=1e-3)
+    
+def test_xywhr2xyxyxyxy():
+    xywhr = torch.rand(10, 5)
+    ultralytics_xyxyxyxy = ops.xywhr2xyxyxyxy(xywhr).reshape(-1, 8)
+    garuda_xyxyxyxy = xywhr2xyxyxyxy(xywhr.numpy())
+    assert np.allclose(ultralytics_xyxyxyxy.numpy(), garuda_xyxyxyxy, atol=1e-3)
+    
+def test_obb_iou():
+    n = 11
+    m = 13
+    obb1 = torch.rand(n, 8)
+    obb2 = torch.rand(m, 8)
+    xywhr1 = ops.xyxyxyxy2xywhr(obb1)
+    xywhr2 = ops.xyxyxyxy2xywhr(obb2)
+
+    ultralytics_iou_list = []
+    for i in range(m):
+        ultralytics_iou = probiou(xywhr1, xywhr2[i:i+1])
+        ultralytics_iou_list.append(ultralytics_iou)
+        
+    ultralytics_iou = torch.cat(ultralytics_iou_list, dim=1)
+    
+    garuda_iou = obb_iou(obb1.numpy(), obb2.numpy())
+    assert np.allclose(ultralytics_iou.numpy(), garuda_iou, atol=1e-3)
