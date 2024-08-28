@@ -4,7 +4,7 @@ from numpy import ndarray
 
 from dataclasses import dataclass
 
-from supervision.metrics.detection import ConfusionMatrix as SVConfusionMatrix
+from supervision.metrics.detection import ConfusionMatrix as SVConfusionMatrix, MeanAveragePrecision as SVMeanAveragePrecision
 
 from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, label_studio_csv_to_obb, obb_iou
 from beartype import beartype
@@ -167,7 +167,7 @@ def add_obb_to_label_studio_df(df: pd.DataFrame, label_map: dict) -> pd.DataFram
             return obb
         except Exception as e:
             warnings.warn(f"Error processing row: {row}\n{e}")
-            return None
+            return np.zeros((0, 9))
     
     df["obb"] = df.apply(process_row, axis=1)
     return df
@@ -183,8 +183,8 @@ class ConfusionMatrix(SVConfusionMatrix):
     @jaxtyped(typechecker=beartype)
     def from_obb_tensors(
         cls,
-        predictions: List[Float[ndarray, "... 10"]],
-        targets: List[Float[ndarray, "... 9"]],
+        predictions: List[Float[ndarray, "_ 10"]],
+        targets: List[Float[ndarray, "_ 9"]],
         classes: List[str],
         conf_threshold: float,
         iou_threshold: float,
@@ -296,3 +296,125 @@ class ConfusionMatrix(SVConfusionMatrix):
                 result_matrix[num_classes, detection_class_value] += 1  # FP
 
         return result_matrix
+    
+    @property
+    @jaxtyped(typechecker=beartype)
+    def true_positives(self) -> Int[ndarray, "{len(self.classes)}"]:
+        """
+        Calculate True Positives (TP) for each class.
+        
+        Returns
+        -------
+        np.ndarray: True Positives for each class.
+        """
+        return self.matrix.diagonal()[:-1].astype(int)
+    
+    @property
+    @jaxtyped(typechecker=beartype)
+    def predicted_positives(self) -> Int[ndarray, "{len(self.classes)}"]:
+        """
+        Calculate Predicted Positives (PP) for each class.
+        
+        Returns
+        -------
+        np.ndarray: Predicted Positives for each class.
+        """
+        return self.matrix.sum(axis=0)[:-1].astype(int)
+    
+    @property
+    @jaxtyped(typechecker=beartype)
+    def false_positives(self) -> Int[ndarray, "{len(self.classes)}"]:
+        """
+        Calculate False Positives (FP) for each class.
+        
+        Returns
+        -------
+        np.ndarray: False Positives for each class.
+        """
+        return self.predicted_positives - self.true_positives
+    
+    @property
+    @jaxtyped(typechecker=beartype)
+    def actual_positives(self) -> Int[ndarray, "{len(self.classes)}"]:
+        """
+        Calculate Actual Positives (AP) for each class.
+        
+        Returns
+        -------
+        np.ndarray: Actual Positives for each class.
+        """
+        return self.matrix.sum(axis=1)[:-1].astype(int)
+    
+    @property
+    @jaxtyped(typechecker=beartype)
+    def false_negatives(self) -> Int[ndarray, "{len(self.classes)}"]:
+        """
+        Calculate False Negatives (FN) for each class.
+        
+        Returns
+        -------
+        np.ndarray: False Negatives for each class.
+        """
+        return self.actual_positives - self.true_positives
+    
+    @property
+    @jaxtyped(typechecker=beartype)
+    def precision(self) -> Float[ndarray, "{len(self.classes)}"]:
+        """
+        Calculate precision for each class.
+        
+        Returns
+        -------
+        np.ndarray: Precision for each class.
+        """
+        precision = self.true_positives / self.predicted_positives
+        return precision
+        
+    @property
+    @jaxtyped(typechecker=beartype)
+    def recall(self) -> Float[ndarray, "{len(self.classes)}"]:
+        """
+        Calculate recall for each class.
+        
+        Returns
+        -------
+        np.ndarray: Recall for each class.
+        """
+        recall = self.true_positives / self.actual_positives
+        return recall
+    
+    @property
+    @jaxtyped(typechecker=beartype)
+    def f1_score(self) -> Float[ndarray, "{len(self.classes)}"]:
+        """
+        Calculate F1 score for each class.
+        
+        Returns
+        -------
+        np.ndarray: F1 score for each class.
+        """
+        # f1_score = 2 * (self.precision * self.recall) / (self.precision + self.recall)
+        # OR more efficiently
+        f1_score = 2 * self.true_positives / (self.predicted_positives + self.actual_positives)
+        return f1_score
+    
+    @property
+    def summary(self) -> pd.DataFrame:
+        """
+        Generate a summary DataFrame.
+        
+        Returns
+        -------
+        pd.DataFrame: Summary DataFrame.
+        """
+        summary_df = pd.DataFrame(columns=self.classes)
+        
+        summary_df.loc["Actual Positives", self.classes] = self.actual_positives
+        summary_df.loc["Predicted Positives", self.classes] = self.predicted_positives
+        summary_df.loc["True Positives", self.classes] = self.true_positives
+        summary_df.loc["False Positives", self.classes] = self.false_positives
+        summary_df.loc["False Negatives", self.classes] = self.false_negatives
+        summary_df.loc["Precision", self.classes] = self.precision
+        summary_df.loc["Recall", self.classes] = self.recall
+        summary_df.loc["F1 Score", self.classes] = self.f1_score
+        return summary_df

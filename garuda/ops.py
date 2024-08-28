@@ -381,6 +381,9 @@ def xyxyxyxy2xywhr(xyxyxyxy: Float[ndarray, "n 8"]) -> Float[ndarray, "n 5"]:
         xywhr: Oriented Bounding Boxes in [x_c, y_c, w, h, r] format.
     """
     
+    if xyxyxyxy.shape[0] == 0:
+        return np.zeros((0, 5))
+    
     points = xyxyxyxy.reshape(len(xyxyxyxy), -1, 2)
     rboxes = []
     for pts in points:
