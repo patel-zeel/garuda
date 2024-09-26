@@ -382,6 +382,10 @@ class BB(AutoTypeChecker):
                 task_name = self.properties["task_name"]
             else:
                 task_name = ""
+        
+        # add source and task_name to properties
+        self.properties["source"] = source
+        self.properties["task_name"] = task_name
 
         if self.geo_box.shape == (4, 2):  # OBB
             box = self.geo_box
@@ -456,7 +460,7 @@ class BB(AutoTypeChecker):
                         f"'{key}' is neither provided nor found in the properties."
                     )
             else:
-                return key
+                return eval(key)
 
         zoom = auto_set("zoom")
         image_width = auto_set("image_width")
@@ -579,7 +583,7 @@ class AABBLabel(BBLabel):
         max_lat = geo_box[:, 1].max()
         geo_box = np.array([[min_lon, min_lat], [max_lon, max_lat]])
         instance = cls(geo_box, class_name)
-        instance.properties = label["properties"]
+        instance.properties.update(label["properties"])
         return instance
 
 class AABBDetection(BBDetection):
@@ -618,11 +622,7 @@ class OBBLabel(BBLabel):
     def from_geojson(cls, label: dict) -> "OBBLabel":
         geo_box, class_name = cls._from_geojson(label)
         instance = cls(geo_box, class_name)
-
-        if "source" in label["properties"]:
-            instance.properties['source'] = label["properties"]["source"]
-        if "task_name" in label["properties"]:
-            instance.properties['task_name'] = label["properties"]["task_name"]
+        instance.properties.update(label["properties"])
         return instance
 
     @classmethod
@@ -659,14 +659,14 @@ class OBBLabel(BBLabel):
         x_4 = x - height * sin_rot
         y_4 = y + height * cos_rot
 
-        # scale to original image size
+        # scale to [0, 1]
         (x_1, x_2, x_3, x_4) = map(
-            lambda x: round(x * label["original_width"] / 100), (x_1, x_2, x_3, x_4)
+            lambda x: x / 100, (x_1, x_2, x_3, x_4)
         )
         (y_1, y_2, y_3, y_4) = map(
-            lambda y: round(y * label["original_height"] / 100), (y_1, y_2, y_3, y_4)
+            lambda y: y / 100, (y_1, y_2, y_3, y_4)
         )
-        box = np.array([x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4])
+        box = np.array([x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4], dtype=np.float32)
 
         geo_box = cls._local_box_to_geo(
             box,

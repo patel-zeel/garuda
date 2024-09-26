@@ -32,7 +32,7 @@ class AnnotationTool:
         self.m = leafmap.Map(center=(27, 77), zoom=self.zoom)
         self.m.add_basemap("Esri.WorldImagery")
         self.m.remove_control(self.m.draw_control)
-        self.draw_control = GeomanDrawControl(position='topright')
+        self.draw_control = GeomanDrawControl(position='topright',  polyline={}, circle={}, circlemarker={}, marker={}, polygon={}, cut=False)
         
         def on_draw(*args, **kwargs):
             self.status_label.value = "Submit the label to update it."
@@ -119,9 +119,9 @@ class AnnotationTool:
             
             # show current label
             feature = label.to_geojson(source=None, task_name=None)
-            # show the boundary in red color
-            feature['properties']['style'] = {'color': self.get_color(feature), 'fillColor': self.get_color(feature), 'fillOpacity': 0.0}
+            
             self.draw_control.data = [] # first clear the existing data to trigger the changes in GUI
+            feature['properties']['style'] = {'color': self.get_color(feature), 'fillColor': self.get_color(feature), 'fillOpacity': 0.0}
             self.draw_control.data = [feature]
             self.classes_dropdown.value = feature['properties']['class_name']
         
@@ -191,6 +191,7 @@ class AnnotationTool:
         feature['properties']['source'] = 'hand_validated'
         feature['properties']['task_name'] = 'hand_validation'
         feature['properties']['class_name'] = self.classes_dropdown.value
+        feature['properties']['style'] = {'color': self.get_color(feature), 'fillColor': self.get_color(feature), 'fillOpacity': 0.0}
         self.labels[self.index] = OBBLabel.from_geojson(feature)
         self.cache_label()
         self.show_current_label()
@@ -206,12 +207,16 @@ class AnnotationTool:
     def reset_button_clicked(self, *args, **kwargs):
         original_label = self.original_labels[self.index]
         self.labels[self.index] = original_label
+        feature = self.labels[self.index].to_geojson(source=None, task_name=None)
+        self.labels[self.index].properties['style'] = {'color': self.get_color(feature), 'fillColor': self.get_color(feature), 'fillOpacity': 0.0}
         self.cache_label()
         self.show_current_label()
     
     def on_dropdown_change(self, old, new):
         if new != self.labels[self.index].properties['class_name']:
             self.labels[self.index].properties['class_name'] = new
+            feature = self.labels[self.index].to_geojson(source=None, task_name=None)
+            self.labels[self.index].properties['style'] = {'color': self.get_color(feature), 'fillColor': self.get_color(feature), 'fillOpacity': 0.0}
             self.cache_label()
             self.show_current_label()
     
@@ -248,7 +253,7 @@ class AnnotationTool:
         os.makedirs(save_dir, exist_ok=True)
         collection = self.to_geojson()
         if save_name is None:
-            save_name = "hand_validated_labels.geojson"
+            save_name = "hand_validated.geojson"
         save_path = os.path.join(save_dir, save_name)
         with open(save_path, "w") as f:
             geojson.dump(collection, f)

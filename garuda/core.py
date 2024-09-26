@@ -1,3 +1,4 @@
+import os
 import cv2
 import pyproj
 import geojson
@@ -43,7 +44,9 @@ def get_latlon_from_gms_path(path: str) -> dict:
         Example: {"str": ("37.7749", "-122.4194"), "float": (37.7749, -122.4194)}
     """
     
-    assert path.endswith(".txt"), "Path should be a .txt file."
+    # remove extension from path. extension can be anything like .txt, .png, .jpg, etc.
+    
+    path = os.path.splitext(path)[0]
     path = path.replace("%2C", ",")
     base_name = basename(path)
     base_name = base_name.replace(".txt", "")
