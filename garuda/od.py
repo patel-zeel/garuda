@@ -4,9 +4,9 @@ from numpy import ndarray
 
 from dataclasses import dataclass
 
-from supervision.metrics.detection import ConfusionMatrix as SVConfusionMatrix, MeanAveragePrecision as SVMeanAveragePrecision
+# from supervision.metrics.detection import ConfusionMatrix as SVConfusionMatrix, MeanAveragePrecision as SVMeanAveragePrecision
 
-from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, label_studio_csv_to_obb, obb_iou
+from garuda.utils import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, label_studio_csv_to_obb, obb_iou
 from beartype import beartype
 from jaxtyping import Float, Int, jaxtyped
 from beartype.typing import Union, List

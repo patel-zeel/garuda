@@ -24,6 +24,11 @@ Latest version:
 pip install git+https://github.com/patel-zeel/garuda
 ```
 
+## Non-circular imports
+* core -> box
+* box -> utils
+* core + box -> annotate
+
 ## Terminology
 
 | Term                                   | Description                                                                                                                                                      |
@@ -158,3 +163,7 @@ img = plt.imread('data/images/22.32,87.93.png')
 fig, ax = plt.subplots()
 ax = plot_webm_pixel_to_geo(img, img_center_lat, img_center_lon, zoom, ax)
 ```
+
+### Why `OBBLabel` and not `OBBLabels`
+* Non-vectorized operations are easier to understand and debug.
+* It'd be easy for us to separate out exact false positives and false negatives at a single object level.

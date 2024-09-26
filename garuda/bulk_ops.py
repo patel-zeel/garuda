@@ -4,9 +4,12 @@ import numpy as np
 import pandas as pd
 from garuda.od import add_obb_to_label_studio_df
 from beartype import beartype
+from beartype.typing import Sequence, Tuple
 from jaxtyping import jaxtyped
 
-from garuda.ops import obb_to_aa
+from garuda.utils import obb_to_aa
+from garuda.core import BB
+    
 
 @jaxtyped(typechecker=beartype)
 def write_obb_labels_from_label_studio_csv(save_dir: str, df:pd.DataFrame, label_map: dict):

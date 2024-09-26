@@ -4,7 +4,7 @@ import numpy as np
 from ultralytics.utils import ops
 from ultralytics.utils.metrics import probiou
 
-from garuda.ops import webm_pixel_to_geo, geo_to_webm_pixel, obb_to_aa, label_studio_csv_to_obb, obb_iou, xyxyxyxy2xywhr, xywhr2xyxyxyxy
+from garuda.utils import webm_pixel_to_geo, geo_to_webm_pixel, obb_to_aa, label_studio_csv_to_obb, obb_iou, xyxyxyxy2xywhr, xywhr2xyxyxyxy
 
 # test zoom levels
 test_zoom_levels = [0, 8, 17, 20]

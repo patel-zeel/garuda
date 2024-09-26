@@ -8,4 +8,4 @@ planetary-computer
 shapely
 rioxarray
 opencv-python
-supervision
+einops

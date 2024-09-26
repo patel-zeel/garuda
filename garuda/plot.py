@@ -4,7 +4,7 @@ from matplotlib.axes import Axes
 from jaxtyping import Float, jaxtyped
 from beartype import beartype
 
-from garuda.ops import geo_to_webm_pixel, webm_pixel_to_geo
+from garuda.utils import geo_to_webm_pixel, webm_pixel_to_geo
 
 @jaxtyped(typechecker=beartype)
 def plot_webm_pixel_to_geo(img: ndarray, img_center_lat: float, img_center_lon: float, zoom: int, ax:Axes) -> Axes:
