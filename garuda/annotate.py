@@ -84,7 +84,7 @@ class AnnotationTool:
         
         # initialize
         loaded_from_cache = self.show_current_label()
-        while loaded_from_cache:
+        while loaded_from_cache and self.index < len(self.labels) - 1:
             self.next_button_clicked()
             loaded_from_cache = self.show_current_label()
         
@@ -236,12 +236,19 @@ class AnnotationTool:
         labels = glob(f"{self.cache_dir}/label_*.geojson")
         for label in labels:
             with open(label, "r") as f:
-                feature = geojson.load(f)['features'][0]
+                data = f.read().strip()
+            if data == "Empty_label":
+                continue
+            feature = geojson.loads(data)['features'][0]
             features.append(feature)
         collection = geojson.FeatureCollection(features)
         return collection
     
-    def save_to_geojson(self, save_path):
+    def save_to_geojson(self, save_dir, save_name=None):
+        os.makedirs(save_dir, exist_ok=True)
         collection = self.to_geojson()
+        if save_name is None:
+            save_name = "hand_validated_labels.geojson"
+        save_path = os.path.join(save_dir, save_name)
         with open(save_path, "w") as f:
             geojson.dump(collection, f)
