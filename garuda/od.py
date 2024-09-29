@@ -1,15 +1,24 @@
+import os
+from pathlib import Path
+import cv2
 import numpy as np
 import pandas as pd
 from numpy import ndarray
 
 from dataclasses import dataclass
-
-# from supervision.metrics.detection import ConfusionMatrix as SVConfusionMatrix, MeanAveragePrecision as SVMeanAveragePrecision
-
-from garuda.utils import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, label_studio_csv_to_obb, obb_iou
+from supervision.utils.file import list_files_with_extensions, read_yaml_file, read_txt_file
+from supervision.config import ORIENTED_BOX_COORDINATES
+from supervision.dataset.core import DetectionDataset as SVDetectionDataset
+from supervision.dataset.formats.yolo import _with_mask, _extract_class_names, yolo_annotations_to_detections
+from supervision.metrics.detection import ConfusionMatrix as SVConfusionMatrix
+from supervision.metrics.mean_average_precision import MeanAveragePrecision as SVMeanAveragePrecision, MeanAveragePrecisionResult
+from supervision.metrics.core import Metric, MetricTarget
+from supervision.detection.utils import box_iou_batch, mask_iou_batch
+from supervision.detection.core import Detections
+from garuda.core import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, obb_iou
 from beartype import beartype
 from jaxtyping import Float, Int, jaxtyped
-from beartype.typing import Union, List
+from beartype.typing import Union, List, Tuple, Dict
 import warnings
 
 @jaxtyped(typechecker=beartype)
@@ -131,46 +140,46 @@ def yolo_obb_to_geo(yolo_label: Union[str, Float[ndarray, "n 9"], Float[ndarray,
     return output
 
 
-def add_obb_to_label_studio_df(df: pd.DataFrame, label_map: dict) -> pd.DataFrame:
-    """
-    Add YOLO oriented bounding box to Label Studio DataFrame.
+# def add_obb_to_label_studio_df(df: pd.DataFrame, label_map: dict) -> pd.DataFrame:
+#     """
+#     Add YOLO oriented bounding box to Label Studio DataFrame.
     
-    Parameters
-    ----------
-    df: Label Studio DataFrame.
-        This should be extracted from the Label Studio "CSV" option.
+#     Parameters
+#     ----------
+#     df: Label Studio DataFrame.
+#         This should be extracted from the Label Studio "CSV" option.
         
-    label_map: Dictionary mapping class names to class IDs.
-        Example: {"car": 0, "truck": 1, "bus": 2}
+#     label_map: Dictionary mapping class names to class IDs.
+#         Example: {"car": 0, "truck": 1, "bus": 2}
     
-    Returns
-    -------
-    df: Label Studio DataFrame with YOLO oriented bounding box added as a new column named "obb".
-    """
+#     Returns
+#     -------
+#     df: Label Studio DataFrame with YOLO oriented bounding box added as a new column named "obb".
+#     """
     
-    def process_row(row):
-        try:
-            str_label = row["label"]
-            labels = eval(str_label)
-            obb_list = []
-            for label in labels:
-                x1 = label['x']
-                y1 = label['y']
-                width = label['width']
-                height = label['height']
-                rotation = label['rotation']
-                class_name = label['rectanglelabels'][0]
+#     def process_row(row):
+#         try:
+#             str_label = row["label"]
+#             labels = eval(str_label)
+#             obb_list = []
+#             for label in labels:
+#                 x1 = label['x']
+#                 y1 = label['y']
+#                 width = label['width']
+#                 height = label['height']
+#                 rotation = label['rotation']
+#                 class_name = label['rectanglelabels'][0]
                 
-                obb = label_studio_csv_to_obb(x1, y1, width, height, rotation, class_name, label_map)
-                obb_list.append(obb)
-            obb = np.stack(obb_list)
-            return obb
-        except Exception as e:
-            warnings.warn(f"Error processing row: {row}\n{e}")
-            return np.zeros((0, 9))
+#                 obb = label_studio_csv_to_obb(x1, y1, width, height, rotation, class_name, label_map)
+#                 obb_list.append(obb)
+#             obb = np.stack(obb_list)
+#             return obb
+#         except Exception as e:
+#             warnings.warn(f"Error processing row: {row}\n{e}")
+#             return np.zeros((0, 9))
     
-    df["obb"] = df.apply(process_row, axis=1)
-    return df
+#     df["obb"] = df.apply(process_row, axis=1)
+#     return df
 
 @dataclass
 class ConfusionMatrix(SVConfusionMatrix):
@@ -210,6 +219,7 @@ class ConfusionMatrix(SVConfusionMatrix):
         num_classes = len(classes)
         matrix = np.zeros((num_classes + 1, num_classes + 1))
         for true_batch, detection_batch in zip(targets, predictions):
+            # print(detection_batch.shape, true_batch.shape)
             matrix += cls.evaluate_detection_obb_batch(
                 predictions=detection_batch,
                 targets=true_batch,
@@ -264,8 +274,8 @@ class ConfusionMatrix(SVConfusionMatrix):
         detection_classes = np.array(
             detection_batch_filtered[:, class_id_idx], dtype=np.int16
         )
-        true_boxes = targets[:, 1:9]
-        detection_boxes = detection_batch_filtered[:, 1:9]
+        true_boxes = targets[:, 1:9].reshape(-1, 4, 2)
+        detection_boxes = detection_batch_filtered[:, 1:9].reshape(-1, 4, 2)
 
         iou_batch = obb_iou(true_obb=true_boxes, pred_obb=detection_boxes)
         matched_idx = np.asarray(iou_batch > iou_threshold).nonzero()
@@ -367,7 +377,10 @@ class ConfusionMatrix(SVConfusionMatrix):
         -------
         np.ndarray: Precision for each class.
         """
+        
         precision = self.true_positives / self.predicted_positives
+        # fill NaN values with 0
+        precision = np.nan_to_num(precision)
         return precision
         
     @property
@@ -418,3 +431,233 @@ class ConfusionMatrix(SVConfusionMatrix):
         summary_df.loc["Recall", self.classes] = self.recall
         summary_df.loc["F1 Score", self.classes] = self.f1_score
         return summary_df
+    
+class MeanAveragePrecision(SVMeanAveragePrecision):
+    def __init__(
+        self,
+        metric_target: MetricTarget = MetricTarget.BOXES,
+        class_agnostic: bool = False,
+    ):
+        """
+        Initialize the Mean Average Precision metric.
+
+        Args:
+            metric_target (MetricTarget): The type of detection data to use.
+            class_agnostic (bool): Whether to treat all data as a single class.
+        """
+        self._metric_target = metric_target
+        self._class_agnostic = class_agnostic
+
+        self._predictions_list: List[Detections] = []
+        self._targets_list: List[Detections] = []
+        
+    def _detections_content(self, detections: Detections) -> np.ndarray:
+        """Return boxes, masks or oriented bounding boxes from detections."""
+        if self._metric_target == MetricTarget.BOXES:
+            return detections.xyxy
+        if self._metric_target == MetricTarget.MASKS:
+            return (
+                detections.mask
+                if detections.mask is not None
+                else self._make_empty_content()
+            )
+        if self._metric_target == MetricTarget.ORIENTED_BOUNDING_BOXES:
+            obb = detections.data.get(ORIENTED_BOX_COORDINATES)
+            if obb is not None:
+                return obb.astype(np.float32)
+            return self._make_empty_content()
+        raise ValueError(f"Invalid metric target: {self._metric_target}")
+    
+    def _compute(
+        self,
+        predictions_list: List[Detections],
+        targets_list: List[Detections],
+    ) -> MeanAveragePrecisionResult:
+        iou_thresholds = np.linspace(0.5, 0.95, 10)
+        stats = []
+
+        for predictions, targets in zip(predictions_list, targets_list):
+            prediction_contents = self._detections_content(predictions)
+            target_contents = self._detections_content(targets)
+
+            if len(targets) > 0:
+                if len(predictions) == 0:
+                    stats.append(
+                        (
+                            np.zeros((0, iou_thresholds.size), dtype=bool),
+                            np.zeros((0,), dtype=np.float32),
+                            np.zeros((0,), dtype=int),
+                            targets.class_id,
+                        )
+                    )
+
+                else:
+                    if self._metric_target == MetricTarget.BOXES:
+                        iou = box_iou_batch(target_contents, prediction_contents)
+                    elif self._metric_target == MetricTarget.MASKS:
+                        iou = mask_iou_batch(target_contents, prediction_contents)
+                    else:
+                        raise NotImplementedError(
+                            "Unsupported metric target for IoU calculation"
+                        )
+
+                    matches = self._match_detection_batch(
+                        predictions.class_id, targets.class_id, iou, iou_thresholds
+                    )
+                    stats.append(
+                        (
+                            matches,
+                            predictions.confidence,
+                            predictions.class_id,
+                            targets.class_id,
+                        )
+                    )
+
+        # Compute average precisions if any matches exist
+        if stats:
+            concatenated_stats = [np.concatenate(items, 0) for items in zip(*stats)]
+            average_precisions = self._average_precisions_per_class(*concatenated_stats)
+            map50 = average_precisions[:, 0].mean()
+            map75 = average_precisions[:, 5].mean()
+            map50_95 = average_precisions.mean()
+        else:
+            map50, map75, map50_95 = 0, 0, 0
+            average_precisions = np.empty((0, len(iou_thresholds)), dtype=np.float32)
+
+        return MeanAveragePrecisionResult(
+            iou_thresholds=iou_thresholds,
+            map50_95=map50_95,
+            map50=map50,
+            map75=map75,
+            per_class_ap50_95=average_precisions,
+            metric_target=self._metric_target,
+        )
+
+def load_yolo_annotations(
+    images_directory_path: str,
+    annotations_directory_path: str,
+    data_yaml_path: str,
+    force_masks: bool = False,
+    is_obb: bool = False,
+) -> Tuple[List[str], List[str], Dict[str, Detections]]:
+    """
+    Loads YOLO annotations and returns class names, images,
+        and their corresponding detections.
+
+    Args:
+        images_directory_path (str): The path to the directory containing the images.
+        annotations_directory_path (str): The path to the directory
+            containing the YOLO annotation files.
+        data_yaml_path (str): The path to the data
+            YAML file containing class information.
+        force_masks (bool): If True, forces masks to be loaded
+            for all annotations, regardless of whether they are present.
+        is_obb (bool): If True, loads the annotations in OBB format.
+            OBB annotations are defined as `[class_id, x, y, x, y, x, y, x, y]`,
+            where pairs of [x, y] are box corners.
+
+    Returns:
+        Tuple[List[str], List[str], Dict[str, Detections]]:
+            A tuple containing a list of class names, a dictionary with
+            image names as keys and images as values, and a dictionary
+            with image names as keys and corresponding Detections instances as values.
+    """
+    image_paths = [
+        str(path)
+        for path in list_files_with_extensions(
+            directory=images_directory_path, extensions=["jpg", "jpeg", "png", "tif"]
+        )
+    ]
+    
+    classes = _extract_class_names(file_path=data_yaml_path)
+    annotations = {}
+
+    for image_path in image_paths:
+        image_stem = Path(image_path).stem
+        annotation_path = os.path.join(annotations_directory_path, f"{image_stem}.txt")
+        if not os.path.exists(annotation_path):
+            annotations[image_path] = Detections.empty()
+            continue
+
+        image = cv2.imread(image_path)
+        lines = read_txt_file(file_path=annotation_path, skip_empty=True)
+        h, w, _ = image.shape
+        resolution_wh = (w, h)
+
+        def _with_mask(lines: List[str]) -> bool:
+            return any([len(line.split()) > 5 for line in lines])
+        with_masks = _with_mask(lines=lines)
+        with_masks = force_masks if force_masks else with_masks
+        annotation = yolo_annotations_to_detections(
+            lines=lines,
+            resolution_wh=resolution_wh,
+            with_masks=with_masks,
+            is_obb=is_obb,
+        )
+        annotations[image_path] = annotation
+    return classes, image_paths, annotations
+
+
+class DetectionDataset(SVDetectionDataset):
+    @classmethod
+    def from_yolo(
+        cls,
+        images_directory_path: str,
+        annotations_directory_path: str,
+        data_yaml_path: str,
+        force_masks: bool = False,
+        is_obb: bool = False,
+    ) -> "DetectionDataset":
+        """
+        Creates a Dataset instance from YOLO formatted data.
+
+        Args:
+            images_directory_path (str): The path to the
+                directory containing the images.
+            annotations_directory_path (str): The path to the directory
+                containing the YOLO annotation files.
+            data_yaml_path (str): The path to the data
+                YAML file containing class information.
+            force_masks (bool): If True, forces
+                masks to be loaded for all annotations,
+                regardless of whether they are present.
+            is_obb (bool): If True, loads the annotations in OBB format.
+                OBB annotations are defined as `[class_id, x, y, x, y, x, y, x, y]`,
+                where pairs of [x, y] are box corners.
+
+        Returns:
+            DetectionDataset: A DetectionDataset instance
+                containing the loaded images and annotations.
+
+        Examples:
+            ```python
+            import roboflow
+            from roboflow import Roboflow
+            import supervision as sv
+
+            roboflow.login()
+            rf = Roboflow()
+
+            project = rf.workspace(WORKSPACE_ID).project(PROJECT_ID)
+            dataset = project.version(PROJECT_VERSION).download("yolov5")
+
+            ds = sv.DetectionDataset.from_yolo(
+                images_directory_path=f"{dataset.location}/train/images",
+                annotations_directory_path=f"{dataset.location}/train/labels",
+                data_yaml_path=f"{dataset.location}/data.yaml"
+            )
+
+            ds.classes
+            # ['dog', 'person']
+            ```
+        """
+        classes, image_paths, annotations = load_yolo_annotations(
+            images_directory_path=images_directory_path,
+            annotations_directory_path=annotations_directory_path,
+            data_yaml_path=data_yaml_path,
+            force_masks=force_masks,
+            is_obb=is_obb,
+        )
+        return DetectionDataset(
+            classes=classes, images=image_paths, annotations=annotations
+        )

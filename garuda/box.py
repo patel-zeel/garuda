@@ -2,13 +2,13 @@ import numpy as np
 from numpy import ndarray
 
 from beartype import beartype
-from beartype.typing import Sequence, Tuple
+from beartype.typing import Sequence, Tuple, Literal
 from jaxtyping import Float, Int, jaxtyped
 import warnings
 from einops import rearrange
 from geopy import distance
 from copy import deepcopy
-from geemap import geemap
+from leafmap import leafmap
 from hashlib import sha256
 
 from garuda.core import xywh2xyxy, local_to_geo, geo_to_local
@@ -303,71 +303,85 @@ class BB(AutoTypeChecker):
 
     @staticmethod
     def _geo_box_to_local(
+        epsg: int,
         geo_box: Float[ndarray, "4 2"] | Float[ndarray, "2 2"],
         zoom: int,
-        image_center_lat: float,
-        image_center_lon: float,
+        image_center_x: float,
+        image_center_y: float,
         image_width: int,
         image_height: int,
+        resolution: int | None,
     ) -> Float[ndarray, "8"] | Float[ndarray, "4"]:
         lons = geo_box[:, 0]
         lats = geo_box[:, 1]
         if geo_box.shape == (4, 2):
             x1, y1 = geo_to_local(
+                epsg,
                 lats[0],
                 lons[0],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
+                resolution,
             )
             x2, y2 = geo_to_local(
+                epsg,
                 lats[1],
                 lons[1],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
+                resolution,
             )
             x3, y3 = geo_to_local(
+                epsg,
                 lats[2],
                 lons[2],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
+                resolution,
             )
             x4, y4 = geo_to_local(
+                epsg,
                 lats[3],
                 lons[3],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
+                resolution,
             )
             return np.array([x1, y1, x2, y2, x3, y3, x4, y4])
         elif geo_box.shape == (2, 2):
             x1, y1 = geo_to_local(
+                epsg,
                 lons[0],
                 lats[0],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
+                resolution,
             )
             x2, y2 = geo_to_local(
+                epsg,
                 lons[1],
                 lats[1],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
+                resolution,
             )
             return np.array([x1, y1, x2, y2])
 
@@ -415,29 +429,34 @@ class BB(AutoTypeChecker):
 
     def to_ultralytics_obb(
         self,
+        epsg: int,
         classes: Sequence,
         zoom: int | None,
-        image_center_lat: float | None,
-        image_center_lon: float | None,
+        image_center_x: float | None,
+        image_center_y: float | None,
         image_width: int | None,
         image_height: int | None,
+        resolution: int | None,
     ) -> Float[ndarray, "9"] | Float[ndarray, "10"]:
         """
         To Ultralytics oriented bounding box (OBB) format.
 
         Parameters
         ----------
-        classes: sequence
-            Sequence of class names. We will use this to get the class_id from the class name.
+        epsg: EPSG code of the projection of the image.
+            Only '3857' (web mercator) and '32XXX' (utm) are supported.
+        
+        classes: Sequence of class names. We will use this to get the class_id from the class name.
 
-        zoom: int
-            Zoom level of the image.
+        zoom: Zoom level of the image. Applicable only for epsg=3857. Provide None for UTM projection.
 
-        image_center_lat, image_center_lon: float
-            Latitude and longitude of the center of the image
+        image_center_x: Latitude if projection is "webm" else UTM x coordinate.
+            
+        image_center_y: Longitude if projection is "webm" else UTM y coordinate.
 
-        image_width, image_height: int
-            Width and height of the image.
+        image_width, image_height: Width and height of the image.
+        
+        resolution: Resolution of the image. Applicable only for UTM projection. Provide None for web mercator projection.
             
         Returns
         -------
@@ -449,9 +468,12 @@ class BB(AutoTypeChecker):
         assert isinstance(
             self, (OBBLabel, OBBDetection)
         ), f"this method should not be called on {self.__class__.__name__}. It is only for 'OBBLabel' and 'OBBDetection' instances."
+        
+        if str(epsg).startswith("32") and len(str(epsg)) == 5:
+            zoom = 100 # dummy value
 
         def auto_set(key):
-            nonlocal zoom, image_center_lat, image_center_lon, image_width, image_height
+            nonlocal zoom, image_center_x, image_center_y, image_width, image_height
             if eval(key) is None:
                 if key in self.properties:
                     return self.properties[key]
@@ -465,19 +487,21 @@ class BB(AutoTypeChecker):
         zoom = auto_set("zoom")
         image_width = auto_set("image_width")
         image_height = auto_set("image_height")
-        image_center_lat = auto_set("image_center_lat")
-        image_center_lon = auto_set("image_center_lon")
+        image_center_x = auto_set("image_center_x")
+        image_center_y = auto_set("image_center_y")
 
         class_id = classes.index(self.class_name)
 
         box = self._geo_box_to_local(
-            self.geo_box,
-            zoom,
-            image_center_lat,
-            image_center_lon,
-            image_width,
-            image_height,
-        )
+                epsg,
+                self.geo_box,
+                zoom,
+                image_center_x,
+                image_center_y,
+                image_width,
+                image_height,
+                resolution,
+            )
 
         label = np.zeros(10) * np.nan
         label[0] = class_id
@@ -497,22 +521,11 @@ class BB(AutoTypeChecker):
         """
         To Ultralytics axis-aligned bounding box format.
         """
-        class_id = classes.index(self.class_name)
-        x = self.geo_box[::2] / self.original_width
-        y = self.geo_box[1::2] / self.original_height
-        x_min, x_max = np.min(x), np.max(x)
-        y_min, y_max = np.min(y), np.max(y)
-        box = np.array([x_min, y_min, x_max, y_max])
-
-        label = np.zeros(6) * np.nan
-        label[0] = class_id
-        label[1:5] = box
-        label[5] = self.confidence
-        raise NotImplementedError("This method is not implemented yet.")
+        raise NotImplementedError
 
     def visualize(self, zoom):
         geojson_box = self.to_geojson(None, None)
-        Map = geemap.Map(
+        Map = leafmap.Map(
             center=[self.properties["center_lat"], self.properties["center_lon"]],
             zoom=zoom,
         )
