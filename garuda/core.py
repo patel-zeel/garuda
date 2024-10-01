@@ -639,6 +639,26 @@ def obb_iou_shapely(obb1: Float[ndarray, "4 2"], obb2: Float[ndarray, "4 2"]) ->
     return iou
 
 @jaxtyped(typechecker=beartype)
+def obb_iou_shapely_batch(obb1: Float[ndarray, "n 4 2"], obb2: Float[ndarray, "m 4 2"]) -> Float[ndarray, "n m"]:
+    """
+    Compute Intersection over Union (IoU) of two Oriented Bounding Boxes (OBB) using Shapely library.
+    
+    Args:
+        obb1: Oriented Bounding Box in [x1, y1, x2, y2, x3, y3, x4, y4] format.
+        obb2: Oriented Bounding Box in [x1, y1, x2, y2, x3, y3, x4, y4] format.
+        
+    Returns:
+        iou: Intersection over Union (IoU) of the two OBBs in [0, 1] range.
+    """
+    iou = np.zeros((obb1.shape[0], obb2.shape[0]))
+    for i, obb1_ in enumerate(obb1):
+        for j, obb2_ in enumerate(obb2):
+            iou[i, j] = obb_iou_shapely(obb1_, obb2_)
+    return iou
+
+
+
+@jaxtyped(typechecker=beartype)
 def obb_smaller_box_ioa(obb1: Float[ndarray, "4 2"], obb2: Float[ndarray, "4 2"]) -> float:
     """
     Compute intersection over area of smaller box with the larger box. Here, intersection is intersection between the two boxes and area is area of the smaller box.

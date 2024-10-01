@@ -15,7 +15,7 @@ from supervision.metrics.mean_average_precision import MeanAveragePrecision as S
 from supervision.metrics.core import Metric, MetricTarget
 from supervision.detection.utils import box_iou_batch, mask_iou_batch
 from supervision.detection.core import Detections
-from garuda.core import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, obb_iou
+from garuda.core import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, obb_iou, obb_iou_shapely_batch
 from beartype import beartype
 from jaxtyping import Float, Int, jaxtyped
 from beartype.typing import Union, List, Tuple, Dict
@@ -496,9 +496,12 @@ class MeanAveragePrecision(SVMeanAveragePrecision):
                         iou = box_iou_batch(target_contents, prediction_contents)
                     elif self._metric_target == MetricTarget.MASKS:
                         iou = mask_iou_batch(target_contents, prediction_contents)
+                    elif self._metric_target == MetricTarget.ORIENTED_BOUNDING_BOXES:
+                        iou = obb_iou(target_contents, prediction_contents)
+                        # iou = obb_iou_shapely_batch(target_contents, prediction_contents)
                     else:
                         raise NotImplementedError(
-                            "Unsupported metric target for IoU calculation"
+                            f"Unsupported metric target={self._metric_target} for MeanAveragePrecision"
                         )
 
                     matches = self._match_detection_batch(
@@ -516,22 +519,119 @@ class MeanAveragePrecision(SVMeanAveragePrecision):
         # Compute average precisions if any matches exist
         if stats:
             concatenated_stats = [np.concatenate(items, 0) for items in zip(*stats)]
-            average_precisions = self._average_precisions_per_class(*concatenated_stats)
-            map50 = average_precisions[:, 0].mean()
-            map75 = average_precisions[:, 5].mean()
-            map50_95 = average_precisions.mean()
+            average_precisions, unique_classes = self._average_precisions_per_class(
+                *concatenated_stats
+            )
+            mAP_scores = np.mean(average_precisions, axis=0)
         else:
-            map50, map75, map50_95 = 0, 0, 0
+            mAP_scores = np.zeros((10,), dtype=np.float32)
+            unique_classes = np.empty((0,), dtype=int)
             average_precisions = np.empty((0, len(iou_thresholds)), dtype=np.float32)
 
         return MeanAveragePrecisionResult(
-            iou_thresholds=iou_thresholds,
-            map50_95=map50_95,
-            map50=map50,
-            map75=map75,
-            per_class_ap50_95=average_precisions,
             metric_target=self._metric_target,
+            mAP_scores=mAP_scores,
+            iou_thresholds=iou_thresholds,
+            matched_classes=unique_classes,
+            ap_per_class=average_precisions,
         )
+        
+        
+    @staticmethod
+    def _average_precisions_per_class(
+        matches: np.ndarray,
+        prediction_confidence: np.ndarray,
+        prediction_class_ids: np.ndarray,
+        true_class_ids: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Compute the average precision, given the recall and precision curves.
+        Source: https://github.com/rafaelpadilla/Object-Detection-Metrics.
+
+        Args:
+            matches (np.ndarray): True positives.
+            prediction_confidence (np.ndarray): Objectness value from 0-1.
+            prediction_class_ids (np.ndarray): Predicted object classes.
+            true_class_ids (np.ndarray): True object classes.
+            eps (float, optional): Small value to prevent division by zero.
+
+        Returns:
+            (Tuple[np.ndarray, np.ndarray]): Average precision for different
+                IoU levels, and an array of class IDs that were matched.
+        """
+        eps = 1e-16
+
+        sorted_indices = np.argsort(-prediction_confidence)
+        matches = matches[sorted_indices]
+        prediction_class_ids = prediction_class_ids[sorted_indices]
+
+        unique_classes, class_counts = np.unique(true_class_ids, return_counts=True)
+        num_classes = unique_classes.shape[0]
+
+        average_precisions = np.zeros((num_classes, matches.shape[1]))
+
+        for class_idx, class_id in enumerate(unique_classes):
+            is_class = prediction_class_ids == class_id
+            total_true = class_counts[class_idx]
+            total_prediction = is_class.sum()
+
+            if total_prediction == 0 or total_true == 0:
+                continue
+
+            false_positives = (1 - matches[is_class]).cumsum(0)
+            true_positives = matches[is_class].cumsum(0)
+            false_negatives = total_true - true_positives
+
+            recall = true_positives / (true_positives + false_negatives + eps)
+            precision = true_positives / (true_positives + false_positives)
+
+            for iou_level_idx in range(matches.shape[1]):
+                average_precisions[class_idx, iou_level_idx] = (
+                    MeanAveragePrecision._compute_average_precision(
+                        recall[:, iou_level_idx], precision[:, iou_level_idx]
+                    )
+                )
+
+        return average_precisions, unique_classes
+        
+    @staticmethod
+    def _compute_average_precision(recall: np.ndarray, precision: np.ndarray) -> float:
+        """
+        Compute the average precision using 101-point interpolation (COCO), given
+            the recall and precision curves.
+
+        Args:
+            recall (np.ndarray): The recall curve.
+            precision (np.ndarray): The precision curve.
+
+        Returns:
+            (float): Average precision.
+        """
+        ########### Area method
+        # if len(recall) == 0 and len(precision) == 0:
+        #     return 0.0
+
+        # recall_levels = np.linspace(0, 1, 101)
+        # precision_levels = np.zeros_like(recall_levels)
+        # for r, p in zip(recall[::-1], precision[::-1]):
+        #     precision_levels[recall_levels <= r] = p
+
+        # average_precision = (1 / 100 * precision_levels).sum()
+        # return average_precision
+        
+        ############ 101 point method
+        extended_recall = np.concatenate(([0.0], recall, [1.0]))
+        extended_precision = np.concatenate(([1.0], precision, [0.0]))
+        max_accumulated_precision = np.flip(
+            np.maximum.accumulate(np.flip(extended_precision))
+        )
+        interpolated_recall_levels = np.linspace(0, 1, 101)
+        interpolated_precision = np.interp(
+            interpolated_recall_levels, extended_recall, max_accumulated_precision
+        )
+        average_precision = np.trapz(interpolated_precision, interpolated_recall_levels)
+        # raise NotImplementedError("101 method is not implemented yet.")
+        return average_precision
 
 def load_yolo_annotations(
     images_directory_path: str,
