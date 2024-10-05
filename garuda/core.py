@@ -25,6 +25,7 @@ from geopy import distance
 from copy import deepcopy
 from geemap import geemap
 from hashlib import sha256
+import utm
 
 ############################################################
 # Common utils
@@ -176,12 +177,15 @@ def get_sentinel2_visual(lat_c: float, lon_c: float, img_height: int, img_width:
     return get_least_cloudy_raster(sorted_items)
 
 @jaxtyped(typechecker=beartype)
-def local_to_geo(x: float, y: float, zoom: int, img_center_lat: float, img_center_lon: float, image_width: int, image_height: int) -> Tuple[float, float]:
+def local_to_geo(epsg: int, x: float, y: float, zoom: int | None, img_center_x: float, img_center_y: float, image_width: int, image_height: int, resolution: int | None) -> Tuple[float, float]:
     """
     Convert local pixel coordinates to geographic coordinates.
         
     Parameters
     ----------
+    epsg: EPSG code of the projection.
+        Only '3857' (web mercator) and '32XXX' (utm) are supported.
+    
     x: Normalized X-coordinate in local pixel coordinates.
         Range: [0, 1]
         Example: 0.5
@@ -193,12 +197,10 @@ def local_to_geo(x: float, y: float, zoom: int, img_center_lat: float, img_cente
     zoom: Zoom level.
         Range: [0, 20]
         
-    img_center_lat: Latitude of the center of the image.
-        Range: [-90, 90]
+    img_center_x: Latitude of the center of the image if epsg is '3857'. UTM x-coordinate of the center of the image if epsg is '32XXX'.
         Example: 37.7749
         
-    img_center_lon: Longitude of the center of the image.
-        Range: [-180, 180]
+    img_center_y: Longitude of the center of the image if epsg is '3857'. UTM y-coordinate of the center of the image if epsg is '32XXX'.
         Example: -122.4194
         
     image_width: Width of the image in pixels.
@@ -220,17 +222,33 @@ def local_to_geo(x: float, y: float, zoom: int, img_center_lat: float, img_cente
         Example: -122.4194
     """
     # Get image center in Web Mercator projection
-    image_center_webm_x, image_center_webm_y = geo_to_webm_pixel(img_center_lat, img_center_lon, zoom)
+    if epsg == 3857:
+        image_center_webm_x, image_center_webm_y = geo_to_webm_pixel(img_center_x, img_center_y, zoom)
+    elif str(epsg).startswith("32") and len(str(epsg)) == 5:
+        pass # nothing to do
+    else:
+        raise ValueError("Only '3857' (web mercator) and '32XXX' (utm) are supported.")
     
-    delta_x = x*image_width - image_width/2  # (4,)
-    delta_y = y*image_height - image_height/2  # (4,)
+    # Get local pixel coordinates
+    x = x * image_width
+    y = y * image_height
     
-    # Get bbox center in Web Mercator projection
-    x = image_center_webm_x + delta_x  # (4,) = () + (4,)
-    y = image_center_webm_y + delta_y  # (4,) = () + (4,)
+    # Get delta from image center
+    delta_x = x - image_width/2
+    delta_y = y - image_height/2
     
-    # Convert bbox center to geographic coordinates
-    lat, lon = webm_pixel_to_geo(x, y, zoom)
+    # Get geographic coordinates
+    if epsg == 3857:
+        x = image_center_webm_x + delta_x
+        y = image_center_webm_y + delta_y
+        lat, lon = webm_pixel_to_geo(x, y, zoom)
+    elif str(epsg).startswith("32") and len(str(epsg)) == 5:
+        x = img_center_x + delta_x * resolution
+        y = img_center_y - delta_y * resolution
+        zone = int(str(epsg)[-2:])
+        lat, lon = utm.to_latlon(x, y, zone, northern=True)
+    else:
+        raise ValueError("Only '3857' (web mercator) and '32XXX' (utm) are supported.")
     
     return lat, lon
 

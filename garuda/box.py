@@ -175,8 +175,9 @@ class BB(AutoTypeChecker):
         return box, class_name, confidence
 
     @classmethod
-    def from_ultralytics_gms(
+    def from_ultralytics(
         cls,
+        epsg: int,
         label: (
             Float[ndarray, "10"]
             | Float[ndarray, "9"]
@@ -184,11 +185,12 @@ class BB(AutoTypeChecker):
             | Float[ndarray, "5"]
         ),
         classes: Sequence,
-        zoom: int,
-        image_center_lat: float,
-        image_center_lon: float,
+        zoom: int | None,
+        image_center_x: float,
+        image_center_y: float,
         image_width: int,
         image_height: int,
+        resolution: int | None,
     ) -> "BBLabel":
         """
         Load label from Ultralytics format.
@@ -209,89 +211,102 @@ class BB(AutoTypeChecker):
         zoom: int
             Zoom level of the image.
 
-        image_center_lat, image_center_lon: float
-            Latitude and longitude of the center of the image
+        image_center_x, image_center_y: float
+            Center of the image in projection coordinates defined by epsg.
         """
         box, class_name, confidence = cls._from_ultralytics(
             label, classes, image_width, image_height
         )
-        geo_box = cls._local_box_to_geo(
-            box, zoom, image_center_lat, image_center_lon, image_width, image_height
-        )
+        geo_box = cls._local_box_to_geo(epsg, box, zoom, image_center_x, image_center_y, image_width, image_height, resolution)
 
         instance = cls(geo_box, class_name, confidence)
+        instance.properties["epsg"] = epsg
         instance.properties["image_width"] = image_width
         instance.properties["image_height"] = image_height
-        instance.properties["image_center_lat"] = image_center_lat
-        instance.properties["image_center_lon"] = image_center_lon
+        instance.properties["image_center_x"] = image_center_x
+        instance.properties["image_center_y"] = image_center_y
         instance.properties["zoom"] = zoom
+        instance.properties["resolution"] = resolution
         return instance
 
     @staticmethod
     def _local_box_to_geo(
+        epsg: int,
         box: Float[ndarray, "8"] | Float[ndarray, "4"],
-        zoom: int,
-        image_center_lat: float,
-        image_center_lon: float,
+        zoom: int | None,
+        image_center_x: float,
+        image_center_y: float,
         image_width: int,
         image_height: int,
+        resolution: int | None,
     ) -> Float[ndarray, "4 2"] | Float[ndarray, "2 2"]:
         x = box[::2].tolist()
         y = box[1::2].tolist()
         if len(box) == 8:  # OBB
             lat1, lon1 = local_to_geo(
+                epsg,
                 x[0],
                 y[0],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
+                resolution,
             )
             lat2, lon2 = local_to_geo(
+                epsg,
                 x[1],
                 y[1],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
+                resolution,
+
             )
             lat3, lon3 = local_to_geo(
+                epsg,
                 x[2],
                 y[2],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
+                resolution,
             )
             lat4, lon4 = local_to_geo(
+                epsg,
                 x[3],
                 y[3],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
+                resolution,
             )
             return np.array([[lon1, lat1], [lon2, lat2], [lon3, lat3], [lon4, lat4]])
         elif len(box) == 4:  # AABB
             lat1, lon1 = local_to_geo(
+                epsg,
                 x[0],
                 y[0],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
             )
             lat2, lon2 = local_to_geo(
+                epsg,
                 x[1],
                 y[1],
                 zoom,
-                image_center_lat,
-                image_center_lon,
+                image_center_x,
+                image_center_y,
                 image_width,
                 image_height,
             )
