@@ -5,13 +5,12 @@ from jaxtyping import jaxtyped, Float, Int
 from beartype import beartype
 from beartype.typing import Sequence, Tuple, Literal
 import geojson
-from garuda.core import obb_iou_shapely, obb_smaller_box_ioa
-from garuda.box import BB, OBBLabel
-from tqdm.auto import tqdm
 import psutil
 from joblib import Parallel, delayed
 import pandas as pd
 import geopandas as gpd
+from garuda.base import obb_iou_shapely, obb_smaller_box_ioa, tqdm, logger
+from garuda.box import BB, OBBLabel
 
 @jaxtyped(typechecker=beartype)
 def obb_labels_from_geojson(collection = str | dict):
@@ -97,7 +96,7 @@ def points_within_boxes(geo_points: Float[ndarray, "n 2"], geo_boxes: Sequence[B
     
 
 @jaxtyped(typechecker=beartype)
-def deduplicate(labels: Sequence[BB], ioa_threshold: float, iou_threshold: float, verbose: bool = True) -> Tuple[Sequence[BB], dict, dict]:
+def deduplicate(labels: Sequence[BB], ioa_threshold: float, iou_threshold: float) -> Tuple[Sequence[BB], dict, dict]:
     """
     Deduplicate Bounding boxes based on IOA and IOU thresholds.
     
@@ -108,8 +107,6 @@ def deduplicate(labels: Sequence[BB], ioa_threshold: float, iou_threshold: float
     ioa_threshold : IOA threshold to remove small bounding boxes contained in larger bounding boxes
         
     iou_threshold : IOU threshold to remove overlapping bounding boxes. The box with the smaller area is removed
-        
-    verbose : Print verbose output, by default True
 
     Returns
     -------
@@ -117,12 +114,8 @@ def deduplicate(labels: Sequence[BB], ioa_threshold: float, iou_threshold: float
     - pair-wise IOA dictionary of returned bounding boxes (index is from the original list)
     - pair-wise IOU dictionary of returned bounding boxes (index is from the original list)
     """
-    
-    def verbose_print(*args, **kwargs):
-        if verbose:
-            print(*args, **kwargs)
             
-    verbose_print("Number of bounding boxes:", len(labels))
+    logger.info(f"Number of bounding boxes: {len(labels)}")
     
     max_lon = np.array([bb.properties['max_lon'] for bb in tqdm(labels)])
     min_lon = np.array([bb.properties['min_lon'] for bb in tqdm(labels)])
@@ -136,14 +129,14 @@ def deduplicate(labels: Sequence[BB], ioa_threshold: float, iou_threshold: float
     
     ij_queries = np.argwhere(~check)
     ij_queries = set([(i, j) for i, j in ij_queries if i < j]) # don't double count
-    verbose_print("Number of possible intersection pairs:", len(ij_queries))
+    logger.info(f"Number of possible intersection pairs: {len(ij_queries)}")
 
     def compute_ioa_iou(i, j):
         ioa = obb_smaller_box_ioa(labels[i].geo_box, labels[j].geo_box)
         iou = obb_iou_shapely(labels[i].geo_box, labels[j].geo_box)
         return ioa, iou
     
-    verbose_print(f"Computing IOA and IOU ...")
+    logger.info(f"Computing IOA and IOU ...")
     ioa_dict = {}
     iou_dict = {}
     for i, j in tqdm(ij_queries):
@@ -151,15 +144,15 @@ def deduplicate(labels: Sequence[BB], ioa_threshold: float, iou_threshold: float
         ioa_dict.update({(i, j): ioa})
         iou_dict.update({(i, j): iou})
 
-    verbose_print("#"*50)
-    verbose_print("Removing overlapping bounding boxes based on IOA")
-    verbose_print("#"*50)
+    logger.info("#"*50)
+    logger.info("Removing overlapping bounding boxes based on IOA")
+    logger.info("#"*50)
     
     removed_indices = set()
     for master_i in range(len(labels)):
-        verbose_print("Master iteration:", master_i)
+        logger.info(f"Master iteration: {master_i}")
         n_current_removed = len(removed_indices)
-        verbose_print("Initial number of bounding boxes:", len(labels) - len(removed_indices))
+        logger.info(f"Initial number of bounding boxes: {len(labels) - len(removed_indices)}")
         for i, j in ij_queries:
             if i in removed_indices or j in removed_indices:
                 continue
@@ -170,19 +163,19 @@ def deduplicate(labels: Sequence[BB], ioa_threshold: float, iou_threshold: float
                     removed_indices.add(j)
         
         n_after_removed = len(removed_indices)
-        verbose_print("Number of bounding boxes after removing overlapping boxes:", len(labels) - len(removed_indices))
+        logger.info(f"Number of bounding boxes after removing overlapping boxes: {len(labels) - len(removed_indices)}")
         if n_after_removed == n_current_removed:
-            verbose_print("No more bounding boxes to remove")
+            logger.info("No more bounding boxes to remove")
             break
         
-    verbose_print("#"*50)
-    verbose_print("Removing overlapping bounding boxes based on IOU")
-    verbose_print("#"*50)
+    logger.info("#"*50)
+    logger.info("Removing overlapping bounding boxes based on IOU")
+    logger.info("#"*50)
         
     for master_i in range(len(labels)):
-        verbose_print("Master iteration:", master_i)
+        logger.info(f"Master iteration: {master_i}")
         n_current_removed = len(removed_indices)
-        verbose_print("Initial number of bounding boxes:", len(labels) - len(removed_indices))
+        logger.info(f"Initial number of bounding boxes: {len(labels) - len(removed_indices)}")
         for i, j in ij_queries:
             if i in removed_indices or j in removed_indices:
                 continue
@@ -193,9 +186,9 @@ def deduplicate(labels: Sequence[BB], ioa_threshold: float, iou_threshold: float
                     removed_indices.add(j)
         
         n_after_removed = len(removed_indices)
-        verbose_print("Number of bounding boxes after removing overlapping bounding boxes:", len(labels) - len(removed_indices))
+        logger.info(f"Number of bounding boxes after removing overlapping bounding boxes: {len(labels) - len(removed_indices)}")
         if n_after_removed == n_current_removed:
-            verbose_print("No more bounding boxes to remove")
+            logger.info("No more bounding boxes to remove")
             break
 
     remaining_ioa_dict = {}
@@ -206,9 +199,9 @@ def deduplicate(labels: Sequence[BB], ioa_threshold: float, iou_threshold: float
         remaining_ioa_dict.update({(i, j): ioa_dict[(i, j)]})
         remaining_iou_dict.update({(i, j): iou_dict[(i, j)]})
     
-    verbose_print("Max IOA:", max(remaining_ioa_dict.values()))
-    verbose_print("Max IOU:", max(remaining_iou_dict.values()))
+    logger.info(f"Max IOA: {max(remaining_ioa_dict.values())}")
+    logger.info(f"Max IOU: {max(remaining_iou_dict.values())}")
     
-    verbose_print("Final number of duplicate bounding boxes to remove:", len(removed_indices))
+    logger.info(f"Final number of duplicate bounding boxes to remove: {len(removed_indices)}")
     final_labels = [labels[i] for i in range(len(labels)) if i not in removed_indices]
     return final_labels, remaining_ioa_dict, remaining_iou_dict

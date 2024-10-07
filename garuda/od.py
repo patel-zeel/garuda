@@ -15,7 +15,7 @@ from supervision.metrics.mean_average_precision import MeanAveragePrecision as S
 from supervision.metrics.core import Metric, MetricTarget
 from supervision.detection.utils import box_iou_batch, mask_iou_batch
 from supervision.detection.core import Detections
-from garuda.core import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, obb_iou, obb_iou_shapely_batch
+from garuda.base import webm_pixel_to_geo, geo_to_webm_pixel, local_to_geo, obb_iou, obb_iou_shapely_batch
 from beartype import beartype
 from jaxtyping import Float, Int, jaxtyped
 from beartype.typing import Union, List, Tuple, Dict

@@ -8,7 +8,7 @@ from beartype.typing import Sequence, Tuple
 from jaxtyping import jaxtyped
 
 from garuda.utils import obb_to_aa
-from garuda.core import BB
+from garuda.base import BB
     
 
 @jaxtyped(typechecker=beartype)

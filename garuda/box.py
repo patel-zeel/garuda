@@ -11,17 +11,7 @@ from copy import deepcopy
 from leafmap import leafmap
 from hashlib import sha256
 
-from garuda.core import xywh2xyxy, local_to_geo, geo_to_local
-
-
-# This class enforces type checking using beartype and jaxtyping on all the methods.
-class AutoTypeChecker:
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        for attr, value in cls.__dict__.items():
-            if callable(value):
-                setattr(cls, attr, jaxtyped(typechecker=beartype)(value))
-
+from garuda.base import xywh2xyxy, local_to_geo, geo_to_local, AutoTypeChecker
 
 class BB(AutoTypeChecker):
     def __init__(
@@ -299,6 +289,7 @@ class BB(AutoTypeChecker):
                 image_center_y,
                 image_width,
                 image_height,
+                resolution,
             )
             lat2, lon2 = local_to_geo(
                 epsg,
@@ -309,6 +300,7 @@ class BB(AutoTypeChecker):
                 image_center_y,
                 image_width,
                 image_height,
+                resolution,
             )
             return np.array([[lon1, lat1], [lon2, lat2]])
         else:
@@ -466,13 +458,13 @@ class BB(AutoTypeChecker):
         zoom: Zoom level of the image. Applicable only for epsg=3857. Provide None for UTM projection.
 
         image_center_x: Latitude if projection is "webm" else UTM x coordinate.
-            
+
         image_center_y: Longitude if projection is "webm" else UTM y coordinate.
 
         image_width, image_height: Width and height of the image.
         
         resolution: Resolution of the image. Applicable only for UTM projection. Provide None for web mercator projection.
-            
+        
         Returns
         -------
         label: ndarray
@@ -484,7 +476,7 @@ class BB(AutoTypeChecker):
             self, (OBBLabel, OBBDetection)
         ), f"this method should not be called on {self.__class__.__name__}. It is only for 'OBBLabel' and 'OBBDetection' instances."
         
-        if str(epsg).startswith("32") and len(str(epsg)) == 5:
+        if str(epsg).startswith("326") and len(str(epsg)) == 5:
             zoom = 100 # dummy value
 
         def auto_set(key):
@@ -598,7 +590,13 @@ width_of_object={self.properties['width_of_object']:.2f} m,
 
 
 class BBDetection(BB):
-    pass
+    def __repr__(self):
+        return f"""BBDetection(box={self.geo_box},
+class_name={self.class_name},
+confidence={self.confidence:.2f},
+length_of_object={self.properties['length_of_object']:.2f} m,
+width_of_object={self.properties['width_of_object']:.2f} m,
+"""
 
 
 class AABBLabel(BBLabel):
@@ -619,30 +617,7 @@ class AABBDetection(BBDetection):
 
 
 class OBBDetection(BBDetection):
-    # TODO: nms supress method
-    @classmethod
-    def from_ultralytics_gms(
-        cls,
-        label: Float[ndarray, "9"] | Float[ndarray, "10"],
-        classes: Sequence,
-        image_width: int,
-        image_height: int,
-        zoom: int,
-        image_center_lat: float,
-        image_center_lon: float,
-    ) -> "OBBDetection":
-        box, class_name, confidence = cls._from_ultralytics(
-            label, classes, image_width, image_height
-        )
-        if confidence is None:
-            warnings.warn("Confidence is not provided. Setting it to 1.0.")
-            confidence = 1.0
-
-        geo_box = cls._local_box_to_geo(
-            box, zoom, image_center_lat, image_center_lon, image_width, image_height
-        )
-
-        return cls(geo_box, class_name, confidence, image_width, image_height)
+    pass
 
 
 class OBBLabel(BBLabel):

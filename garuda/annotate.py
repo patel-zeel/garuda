@@ -8,7 +8,7 @@ from copy import deepcopy
 import geojson
 from ipywidgets import Button, Label, HBox, Dropdown, SelectionSlider, RadioButtons
 from IPython.display import display
-from garuda.core import geo_to_webm_pixel, webm_pixel_to_geo, xywhr2xyxyxyxy
+from garuda.base import geo_to_webm_pixel, webm_pixel_to_geo, xywhr2xyxyxyxy
 from garuda.box import OBBLabel
 from shapely.geometry import Polygon
 
@@ -197,7 +197,7 @@ class AnnotationTool:
         self.cache_label()
         self.show_current_label()
         self.enable_buttons()
-        # self.next_button_clicked()
+        self.next_button_clicked()
         
     def cache_label(self):
         cache_path = f"{self.cache_dir}/label_{self.index}.geojson"
