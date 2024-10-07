@@ -61,32 +61,6 @@ def tqdm(*args, **kwargs):
     return _tqdm(*args, **kwargs)
 
 @jaxtyped(typechecker=beartype)
-def get_latlon_from_gms_path(path: str) -> dict:
-    """
-    Get latitude and longitude from Google Maps Static Image Label path.
-    
-    Parameters
-    ----------
-    path: Path of the Google Maps Static Image Label.
-        Example: "37.7749,-122.4194.txt"
-        
-    Returns
-    -------
-    dict: Dictionary containing latitude and longitude in string and float format.
-        Example: {"str": ("37.7749", "-122.4194"), "float": (37.7749, -122.4194)}
-    """
-    
-    # remove extension from path. extension can be anything like .txt, .png, .jpg, etc.
-    
-    path = os.path.splitext(path)[0]
-    path = path.replace("%2C", ",")
-    base_name = basename(path)
-    base_name = base_name.replace(".txt", "")
-    lat_str, lon_str = base_name.split(",")
-    lat, lon = float(lat_str), float(lon_str)
-    return {"str": (lat_str, lon_str), "float": (lat, lon)}
-
-@jaxtyped(typechecker=beartype)
 def get_sentinel2_visual(lat_c: float, lon_c: float, img_height: int, img_width: int, time_of_interest: str, max_cloud_cover: float, max_items: int = 10, nodata_window_size: int = 2) -> xr.DataArray:
     """
     Get Sentinel-2 image as a xarray file from Microsoft Planetary Computer API.

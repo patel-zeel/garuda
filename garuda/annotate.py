@@ -162,6 +162,7 @@ class AnnotationTool:
             with open(cache_path, "w") as f:
                 f.write("Empty_label")
             self.enable_buttons() # allow to move around if label is empty
+            self.next_button_clicked()
             return
         
         feature = self.draw_control.data[-1]

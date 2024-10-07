@@ -1,4 +1,4 @@
-from os.path import exists
+from os.path import exists, splitext, basename
 import numpy as np
 from numpy import ndarray
 from jaxtyping import jaxtyped, Float, Int
@@ -11,6 +11,53 @@ import pandas as pd
 import geopandas as gpd
 from garuda.base import obb_iou_shapely, obb_smaller_box_ioa, tqdm, logger
 from garuda.box import BB, OBBLabel
+
+@jaxtyped(typechecker=beartype)
+def get_epsg_x_y_from_sentinel_path(path: str) -> dict:
+    """
+    Get EPSG, x_min, x_max, y_min, y_max from Sentinel-2 label/image path.
+    
+    Parameters
+    ----------
+    path: Path of the Sentinel-2 Label/Image with EPSG_xmin_xmax_ymin_ymax.txt file format.
+
+    Returns
+    -------
+    dict: Dictionary containing EPSG, x_min, x_max, y_min, y_max in string and float format.
+    """
+    
+    name = splitext(basename(path))[0]
+    epsg_str, x_str, y_str = name.split("_")
+    epsg_str = epsg_str.lower().replace("epsg:", "")
+    epsg, x, y = int(epsg_str), float(x_str), float(y_str)
+    return {"str": (epsg_str, x_str, y_str), "numeric": (epsg, x, y)}
+
+@jaxtyped(typechecker=beartype)
+def get_latlon_from_gms_path(path: str) -> dict:
+    """
+    Get latitude and longitude from Google Maps Static Image Label path.
+    
+    Parameters
+    ----------
+    path: Path of the Google Maps Static Image Label/Image with lat,lon.txt file format.
+        Example: "37.7749,-122.4194.txt"
+        Example: "37.7749,-122.4194.png"
+        
+    Returns
+    -------
+    dict: Dictionary containing latitude and longitude in string and float format.
+        Example: {"str": ("37.7749", "-122.4194"), "float": (37.7749, -122.4194)}
+    """
+    
+    # remove extension from path. extension can be anything like .txt, .png, .jpg, etc.
+    
+    path = splitext(path)[0]
+    path = path.replace("%2C", ",")
+    base_name = basename(path)
+    base_name = base_name.replace(".txt", "")
+    lat_str, lon_str = base_name.split(",")
+    lat, lon = float(lat_str), float(lon_str)
+    return {"str": (lat_str, lon_str), "float": (lat, lon)}
 
 @jaxtyped(typechecker=beartype)
 def obb_labels_from_geojson(collection = str | dict):
