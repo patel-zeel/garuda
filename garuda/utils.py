@@ -13,6 +13,11 @@ from garuda.base import obb_iou_shapely, obb_smaller_box_ioa, tqdm, logger
 from garuda.box import BB, OBBLabel
 
 @jaxtyped(typechecker=beartype)
+def get_latlons_from_bb(bb: Sequence[BB]) -> Float[ndarray, "{len(bb)} 2"]:
+    latlons = np.array([(label.properties['center_lat'], label.properties['center_lon']) for label in bb])
+    return latlons
+
+@jaxtyped(typechecker=beartype)
 def get_epsg_x_y_from_sentinel_path(path: str) -> dict:
     """
     Get EPSG, x_min, x_max, y_min, y_max from Sentinel-2 label/image path.

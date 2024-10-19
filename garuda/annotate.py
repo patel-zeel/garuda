@@ -8,12 +8,13 @@ from copy import deepcopy
 import geojson
 from ipywidgets import Button, Label, HBox, Dropdown, SelectionSlider, RadioButtons
 from IPython.display import display
-from garuda.base import geo_to_webm_pixel, webm_pixel_to_geo, xywhr2xyxyxyxy
-from garuda.box import OBBLabel
+from garuda.base import logger, geo_to_webm_pixel, webm_pixel_to_geo, xywhr2xyxyxyxy
+from garuda.box import OBBLabel, BB
 from shapely.geometry import Polygon
+from beartype.typing import Sequence, Callable
 
 class AnnotationTool:
-    def __init__(self, labels, classes, zoom, cache_dir, clear_cache=False):
+    def __init__(self, labels: Sequence[BB], classes: Sequence, zoom: int, cache_dir: str, clear_cache: bool = False, add_layer_function: Callable | None = None):
         self.original_labels = deepcopy(labels)
         self.labels = deepcopy(labels)
         self.classes = classes
@@ -31,7 +32,12 @@ class AnnotationTool:
         # Map
         self.m = leafmap.Map(center=(27, 77), zoom=self.zoom)
         # self.m.add_basemap("Esri.WorldImagery")
-        self.m.add_tile_layer("https://wayback.maptiles.arcgis.com/arcgis/rest/services/world_imagery/wmts/1.0.0/default028mm/mapserver/tile/32553/{z}/{y}/{x}", name="Esri 2024", attribution="Esri")
+        if add_layer_function is None:
+            logger.info("No add_layer_function provided. Using 'SATELLITE' basemap.")
+            self.m.add_basemap("SATELLITE")
+        else:
+            logger.info("Using provided add_layer_function.")
+            add_layer_function(self.m)
         self.m.remove_control(self.m.draw_control)
         self.draw_control = GeomanDrawControl(position='topright',  polyline={}, circle={}, circlemarker={}, marker={}, polygon={}, cut=False)
         
@@ -128,6 +134,8 @@ class AnnotationTool:
         
         # update label
         self.show_label.value = f"Label {self.index+1}/{len(self.labels)}"
+        if self.labels[self.index] is not None:
+            self.show_label.value += f": ({self.labels[self.index].properties['center_lat']}, {self.labels[self.index].properties['center_lon']})"
         return loaded_from_cache
         
     def disable_buttons(self):

@@ -111,10 +111,11 @@ class GeoDataset(AutoTypeChecker, Dataset):
             width = ds.rio.width
             return (path, {"x_min": x_min, "x_max": x_max, "y_min": y_min, "y_max": y_max, "epsg": epsg, "height": height, "width": width})
 
-        label_dict = dict(Parallel(get_n_cpus())(delayed(_get_ranges)(path) for path in image_paths))
+        label_dict = dict(Parallel(get_n_cpus())(delayed(_get_ranges)(path) for path in tqdm(image_paths)))
+        logger.info("Assigning labels to images...")
         
         # Assign labels to images
-        results = Parallel(get_n_cpus())(delayed(GeoDataset.create_labels)(image_path, image_attrs, labels, classes, resolution) for image_path, image_attrs in tqdm(label_dict.items()))
+        results = Parallel(get_n_cpus())(delayed(GeoDataset.create_labels)(image_path, image_attrs, labels) for image_path, image_attrs in tqdm(label_dict.items()))
         
         label_dicts = [result[0] for result in results]
         label_counters = [result[1] for result in results]
@@ -148,7 +149,7 @@ class GeoDataset(AutoTypeChecker, Dataset):
 
         return cls(label_dict)
     
-    def to_ultralytics_obb(self, classes: Sequence[str], resolution: int, save_dir: str, write_empty_labels: bool, overwrite: bool = False):
+    def to_ultralytics_obb(self, classes: Sequence[str], resolution: int, save_dir: str, write_empty_labels: bool):
         """
         Save the dataset to Ultralytics format
         
@@ -161,18 +162,12 @@ class GeoDataset(AutoTypeChecker, Dataset):
         """
         
         if os.path.exists(save_dir):
-            if not overwrite:
-                raise FileExistsError(f"Directory already exists: {save_dir}. Set overwrite=True to overwrite the directory.")
-            shutil.rmtree(save_dir)
+            raise FileExistsError(f"Directory already exists: {save_dir}. Please provide a new directory path which does not exist.")
         
         os.makedirs(save_dir, exist_ok=False)
         
         # Create hard-links for the images
-        os.makedirs(os.path.join(save_dir, "images"), exist_ok=False)
-        logger.info(f"Creating hard-links for images to {os.path.join(save_dir, 'images')}")
-        for image_path in tqdm(self.image_to_labels.keys()):
-            base_name = basename(image_path)
-            os.link(image_path, os.path.join(save_dir, "images", base_name))
+        os.makedirs(os.path.join(save_dir, "images"), exist_ok=False)            
         
         # Create labels
         os.makedirs(os.path.join(save_dir, "labels"), exist_ok=False)
@@ -183,14 +178,22 @@ class GeoDataset(AutoTypeChecker, Dataset):
             base_name = splitext(basename(image_path))[0]
             path = join(save_dir, "labels", base_name+".txt")
             epsg = image_attrs["epsg"]
-            
-            with open(path, "w") as f:
-                label_str_list = []
-                for label in self.image_to_labels[image_path]["label"]:
-                    ultralytics_obb = label.to_ultralytics_obb(epsg, classes, None, image_center_x, image_center_y, image_attrs['width'], image_attrs['height'], resolution).tolist()
-                    ultralytics_obb[0] = int(ultralytics_obb[0])
-                    label_str_list.append(" ".join(map(str, ultralytics_obb)))
-                f.write("\n".join(label_str_list))
+
+            label_str_list = []
+            for label in self.image_to_labels[image_path]["label"]:
+                ultralytics_obb = label.to_ultralytics_obb(epsg, classes, None, image_center_x, image_center_y, image_attrs['width'], image_attrs['height'], resolution).tolist()
+                ultralytics_obb[0] = int(ultralytics_obb[0])
+                label_str_list.append(" ".join(map(str, ultralytics_obb)))
+                
+            write = True
+            if len(label_str_list) == 0 and not write_empty_labels:
+                write = False
+                
+            if write:
+                base_name = basename(image_path)
+                os.link(image_path, os.path.join(save_dir, "images", base_name))
+                with open(path, "w") as f:
+                    f.write("\n".join(label_str_list))
                 
         # Create data.yml
         with open(join(save_dir, "data.yml"), "w") as f:
@@ -198,4 +201,4 @@ class GeoDataset(AutoTypeChecker, Dataset):
             f.write(f"val: {os.path.join(save_dir, 'images')}\n")
             f.write(f"predict: {os.path.join(save_dir, 'images')}\n")
             f.write(f"nc: {len(classes)}\n")
-            f.write("names: " + " ".join(classes))
+            f.write(f"names: {classes}")

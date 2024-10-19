@@ -45,7 +45,7 @@ class BB(AutoTypeChecker):
         self.class_name = class_name
         self.confidence = confidence
         self.properties = {
-            "geo_box": self.geo_box.tolist(),
+            # "geo_box": self.geo_box.tolist(), # This becomes too verbose. Anyway not needed.
             "class_name": self.class_name,
             "confidence": self.confidence,
         }
